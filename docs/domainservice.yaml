@@ -1,0 +1,423 @@
+openapi: 3.0.3
+info:
+  title: DomainService API
+  version: 1.0.0
+  description: API для управления пользователями, кошельками, портфелем и сделками
+
+servers:
+  - url: https://api.domain.local
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UserWallet:
+      type: object
+      properties:
+        id:
+          type: string
+        currency:
+          type: string
+          example: BYN
+        amount:
+          type: number
+        reservedAmount:
+          type: number
+        availableAmount:
+          type: number
+        isDefault:
+          type: boolean
+
+    PortfolioPosition:
+      type: object
+      properties:
+        ticker:
+          type: string
+        quantity:
+          type: number
+        reservedQuantity:
+          type: number
+        availableQuantity:
+          type: number
+        averageBuyPrice:
+          type: number
+
+    Order:
+      type: object
+      properties:
+        orderId:
+          type: string
+        ticker:
+          type: string
+        quantity:
+          type: number
+        price:
+          type: number
+        status:
+          type: string
+          enum: [OPEN, MATCHED, CANCELLED, EXPIRED]
+        createdAt:
+          type: string
+          format: date-time
+
+    Trade:
+      type: object
+      properties:
+        id:
+          type: string
+        buyerUserId:
+          type: string
+          nullable: true
+        sellerUserId:
+          type: string
+          nullable: true
+        counterpartyType:
+          type: string
+          enum: [COMPANY, USER]
+        tradeType:
+          type: string
+          enum: [BUY_FROM_COMPANY, SELL_TO_COMPANY, USER_TO_USER]
+        ticker:
+          type: string
+        quantity:
+          type: number
+        price:
+          type: number
+        totalAmount:
+          type: number
+        createdAt:
+          type: string
+          format: date-time
+
+security:
+  - bearerAuth: []
+
+paths:
+
+  /api/auth/code/request:
+    post:
+      summary: Request auth code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+      responses:
+        '200':
+          description: Code sent
+
+  /api/auth/code/confirm:
+    post:
+      summary: Confirm auth code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code]
+              properties:
+                email:
+                  type: string
+                code:
+                  type: string
+      responses:
+        '200':
+          description: Auth success
+
+  /api/users/me:
+    get:
+      summary: Get current user
+      responses:
+        '200':
+          description: User info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+    patch:
+      summary: Update user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+
+  /api/wallets/me:
+    get:
+      summary: Get wallets
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserWallet'
+
+  /api/wallets:
+    post:
+      summary: Create wallet
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                currency:
+                  type: string
+      responses:
+        '200':
+          description: Wallet created
+
+  /api/wallets/{walletId}/make-default:
+    post:
+      summary: Set wallet as default
+      parameters:
+        - name: walletId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+
+  /api/wallets/{walletId}:
+    delete:
+      summary: Delete wallet
+      parameters:
+        - name: walletId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+
+  /api/portfolio:
+    get:
+      summary: Get portfolio
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PortfolioPosition'
+
+  /api/portfolio/{ticker}:
+    get:
+      summary: Get position by ticker
+      parameters:
+        - name: ticker
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortfolioPosition'
+
+  /api/trades/company/buy:
+    post:
+      summary: Buy from company
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ticker:
+                  type: string
+                quantity:
+                  type: number
+                walletId:
+                  type: string
+      responses:
+        '200':
+          description: Trade executed
+
+  /api/trades/company/sell:
+    post:
+      summary: Sell to company
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ticker:
+                  type: string
+                quantity:
+                  type: number
+                walletId:
+                  type: string
+      responses:
+        '200':
+          description: Trade executed
+
+  /api/order-book/{ticker}:
+    get:
+      summary: Get order book
+      parameters:
+        - name: ticker
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Order book
+
+  /api/orders/sell:
+    post:
+      summary: Create sell order
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ticker:
+                  type: string
+                quantity:
+                  type: number
+                price:
+                  type: number
+      responses:
+        '200':
+          description: Order created
+
+  /api/orders/buy:
+    post:
+      summary: Buy from order book
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ticker:
+                  type: string
+                quantity:
+                  type: number
+                maxPrice:
+                  type: number
+                walletId:
+                  type: string
+      responses:
+        '200':
+          description: Trade executed
+
+  /api/orders/sell/{orderId}/buy:
+    post:
+      summary: Buy specific order
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                quantity:
+                  type: number
+                maxPrice:
+                  type: number
+                walletId:
+                  type: string
+      responses:
+        '200':
+          description: Trade executed
+
+  /api/orders/sell/{orderId}/cancel:
+    post:
+      summary: Cancel order
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Cancelled
+
+  /api/orders/my:
+    get:
+      summary: Get my orders
+      responses:
+        '200':
+          description: Orders list
+
+  /api/trades:
+    get:
+      summary: Get trades history
+      parameters:
+        - name: ticker
+          in: query
+          schema:
+            type: string
+        - name: tradeType
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+        - name: to
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Trade'
