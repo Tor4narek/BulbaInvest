@@ -56,5 +56,24 @@ services:
     ports:
       - "${APP_HOST_PORT}:${PORT}"
 
+  market-service:
+    build:
+      context: ../services/market-service
+      dockerfile: Dockerfile
+    environment:
+      HTTP_ADDR: ":8050"
+      MARKET_TICK_INTERVAL: "${MARKET_TICK_INTERVAL:-10s}"
+      MARKET_DRIVER_CONFIG: "${MARKET_DRIVER_CONFIG:-}"
+      REDIS_ADDR: "redis:6379"
+      REDIS_PASSWORD: ""
+      REDIS_DB: "0"
+      MARKET_CONSUMER_GROUP: "market-service"
+      MARKET_CONSUMER_NAME: "market-service-1"
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "${MARKET_SERVICE_HOST_PORT:-8050}:8050"
+
 volumes:
   pg_data:
