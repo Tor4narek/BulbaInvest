@@ -1,5 +1,5 @@
 .gocache/
-market-service
-market-service.exe
+/market-service
+/market-service.exe
 driver/exchange_driver_test
 driver/exchange_driver_test.exe
