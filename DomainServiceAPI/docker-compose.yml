@@ -31,6 +31,7 @@ services:
     ports:
       - "${BROKER_REDIS_HOST_PORT}:6379"
 
+
   # SMTP-заглушка с веб-интерфейсом — http://localhost:${MAILHOG_UI_PORT}
   mailhog:
     image: mailhog/mailhog:latest

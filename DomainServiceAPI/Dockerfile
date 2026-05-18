@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Stage 1: build
 FROM amazoncorretto:21-alpine AS build
 ARG GRADLE_VERSION=8.10.2
@@ -7,12 +8,20 @@ RUN apk add --no-cache curl unzip bash \
  && ln -s /opt/gradle-${GRADLE_VERSION}/bin/gradle /usr/local/bin/gradle \
  && rm /tmp/gradle.zip
 WORKDIR /src
+
+# Сначала только build-файлы — слой кэшируется, пока они не менялись.
+COPY settings.gradle.kts build.gradle.kts gradle.properties ./
+RUN --mount=type=cache,target=/root/.gradle \
+    gradle --no-daemon dependencies --quiet || true
+
+# Затем исходники и сборка. Кэш Gradle переживает пересборки.
 COPY . .
-RUN gradle --no-daemon clean buildFatJar
+RUN --mount=type=cache,target=/root/.gradle \
+    gradle --no-daemon clean installDist
 
 # Stage 2: runtime
 FROM amazoncorretto:21-alpine
 WORKDIR /app
-COPY --from=build /src/build/libs/*-all.jar /app/app.jar
+COPY --from=build /src/build/install/domain-service /app
 EXPOSE 8040
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+ENTRYPOINT ["/app/bin/domain-service"]

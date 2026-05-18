@@ -12,7 +12,6 @@ val jakartaMailVersion = "2.0.3"
 plugins {
     kotlin("jvm") version "2.1.0"
     kotlin("plugin.serialization") version "2.1.0"
-    id("io.ktor.plugin") version "3.0.3"
     application
 }
 
@@ -24,6 +23,7 @@ application {
 }
 
 repositories {
+    maven("https://cache-redirector.jetbrains.com/maven-central")
     mavenCentral()
 }
 
@@ -66,6 +66,10 @@ dependencies {
     // DI
     implementation("io.insert-koin:koin-ktor:$koinVersion")
     implementation("io.insert-koin:koin-logger-slf4j:$koinVersion")
+
+    // Swagger / OpenAPI
+    implementation("io.ktor:ktor-server-openapi-jvm:$ktorVersion")
+    implementation("io.ktor:ktor-server-swagger-jvm:$ktorVersion")
 
     // Logging
     implementation("ch.qos.logback:logback-classic:$logbackVersion")

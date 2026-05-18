@@ -1,40 +1,40 @@
 ktor:
   deployment:
-    port: ${PORT:-8040}
+    port: "$PORT:8040"
   application:
     modules:
       - com.bulbainvest.domain.ApplicationKt.module
 
 db:
-  jdbcUrl: ${DB_URL:-jdbc:postgresql://localhost:5432/domain}
-  user: ${DB_USER:-domain}
-  password: ${DB_PASSWORD:-domain}
+  jdbcUrl: "$DB_URL:jdbc:postgresql://localhost:5432/domain"
+  user: "$DB_USER:domain"
+  password: "$DB_PASSWORD:domain"
 
 redis:
-  host: ${REDIS_HOST:-localhost}
-  port: ${REDIS_PORT:-6379}
+  host: "$REDIS_HOST:localhost"
+  port: "$REDIS_PORT:6379"
 
 brokerRedis:
-  host: ${BROKER_REDIS_HOST:-localhost}
-  port: ${BROKER_REDIS_PORT:-6379}
-  quotesKeyPrefix: ${BROKER_QUOTES_PREFIX:-quotes:last:}
+  host: "$BROKER_REDIS_HOST:localhost"
+  port: "$BROKER_REDIS_PORT:6379"
+  quotesKeyPrefix: "$BROKER_QUOTES_PREFIX:quotes:last:"
 
 jwt:
-  secret: ${JWT_SECRET:-change-me-super-secret}
-  issuer: ${JWT_ISSUER:-bulbainvest-domain}
-  audience: ${JWT_AUDIENCE:-bulbainvest-clients}
-  realm: ${JWT_REALM:-bulbainvest}
-  ttlSeconds: ${JWT_TTL:-2592000}
+  secret: "$JWT_SECRET:change-me-super-secret"
+  issuer: "$JWT_ISSUER:bulbainvest-domain"
+  audience: "$JWT_AUDIENCE:bulbainvest-clients"
+  realm: "$JWT_REALM:bulbainvest"
+  ttlSeconds: "$JWT_TTL:2592000"
 
 mail:
-  host: ${MAIL_HOST:-localhost}
-  port: ${MAIL_PORT:-1025}
-  from: ${MAIL_FROM:-no-reply@bulbainvest.local}
-  user: ${MAIL_USER:-}
-  password: ${MAIL_PASSWORD:-}
+  host: "$MAIL_HOST:localhost"
+  port: "$MAIL_PORT:1025"
+  from: "$MAIL_FROM:no-reply@bulbainvest.local"
+  user: "$MAIL_USER:"
+  password: "$MAIL_PASSWORD:"
 
 stocksMarketApi:
-  baseUrl: ${STOCKS_MARKET_API_URL:-http://stocks-market:8080}
+  baseUrl: "$STOCKS_MARKET_API_URL:http://stocks-market:8080"
 
 authCode:
   ttlSeconds: 300
