@@ -1,0 +1,44 @@
+services:
+  graph-service:
+    build: .
+    ports:
+      - "8083:8083"
+    environment:
+      SERVER_PORT: 8083
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_CHANNEL: stock_prices
+      CLICKHOUSE_URL: jdbc:clickhouse://clickhouse:8123?compress=0
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DATABASE: stocksim
+      BATCH_FLUSH_INTERVAL_SECONDS: 10
+      BATCH_MAX_SIZE: 1000
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse-users.xml:/etc/clickhouse-server/users.d/default-password.xml
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  clickhouse_data:
