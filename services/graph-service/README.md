@@ -400,3 +400,176 @@ graph-service/
 ```json
 { "error": "описание ошибки" }
 ```
+
+---
+
+## Интеграция в общую систему StockSim
+
+Этот раздел для того, кто будет собирать финальный `docker-compose.yml` всего проекта.
+
+### Что брать из этого репозитория
+
+В общую сборку идут только:
+- `graph-service/Dockerfile` — образ сервиса
+- `graph-service/src/` — исходники
+- `graph-service/build.gradle.kts` — сборка
+- `graph-service/clickhouse-users.xml` — конфиг пользователя ClickHouse
+
+**Не берётся** `graph-service/docker-compose.yml` — он только для изолированной разработки.
+
+---
+
+### Какие общие ресурсы нужны
+
+| Ресурс | Нужен GraphService | Кто ещё использует |
+|---|---|---|
+| **Redis** | ✅ читает канал `stock_prices` | StocksMarketAPI (пишет) |
+| **ClickHouse** | ✅ пишет и читает таблицу `quotes` | только GraphService |
+| **PostgreSQL** | ❌ | DomainService |
+
+---
+
+### Блок для общего docker-compose.yml
+
+```yaml
+graph-service:
+  build: ./graph-service
+  expose:
+    - "8083"
+  environment:
+    SERVER_PORT: 8083
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+    REDIS_CHANNEL: stock_prices
+    CLICKHOUSE_URL: jdbc:clickhouse://clickhouse:8123/stocksim?compress=0
+    CLICKHOUSE_USER: default
+    CLICKHOUSE_PASSWORD: ""
+    CLICKHOUSE_DATABASE: stocksim
+    BATCH_FLUSH_INTERVAL_SECONDS: 10
+    BATCH_MAX_SIZE: 1000
+  depends_on:
+    clickhouse:
+      condition: service_healthy
+    redis:
+      condition: service_started
+  restart: unless-stopped
+```
+
+> `expose` вместо `ports` — порт 8083 доступен только внутри Docker-сети, снаружи не торчит. Клиенты идут через APIGateway.
+
+---
+
+### Блок ClickHouse для общего docker-compose.yml
+
+```yaml
+clickhouse:
+  image: clickhouse/clickhouse-server:24.3
+  expose:
+    - "8123"
+    - "9000"
+  volumes:
+    - clickhouse_data:/var/lib/clickhouse
+    - ./graph-service/clickhouse-users.xml:/etc/clickhouse-server/users.d/default-password.xml
+  healthcheck:
+    test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+    interval: 5s
+    timeout: 3s
+    retries: 10
+```
+
+Файл `clickhouse-users.xml` монтируется из папки `graph-service/` — его не нужно копировать отдельно.
+
+---
+
+### Что должен сделать StocksMarketAPI (Go)
+
+GraphService ничего не запрашивает сам — он только слушает. Вся ответственность на StocksMarketAPI: подключиться к тому же Redis и публиковать тики в канал `stock_prices`.
+
+Формат (обязательный, иначе GraphService молча проигнорирует сообщение):
+
+```json
+{
+  "ticker": "AAPL",
+  "buyPrice": 120.50,
+  "sellPrice": 119.80,
+  "timestamp": 1747561200000
+}
+```
+
+Требования к полям:
+- `ticker` — строка, любой регистр (GraphService приводит к uppercase сам)
+- `buyPrice`, `sellPrice` — Float64, цена в BYN
+- `timestamp` — Unix epoch в **миллисекундах** (не секундах)
+
+---
+
+### Что должен сделать APIGateway (Ktor)
+
+Проксировать три эндпоинта GraphService к клиентам. GraphService авторизацию не проверяет — это задача APIGateway.
+
+```kotlin
+val graphServiceUrl = System.getenv("GRAPH_SERVICE_URL") ?: "http://graph-service:8083"
+
+// Список тикеров
+get("/api/tickers") {
+    val response = httpClient.get("$graphServiceUrl/api/tickers")
+    call.respond(response.status, response.bodyAsText())
+}
+
+// Последняя цена
+get("/api/quotes/{ticker}/latest") {
+    val ticker = call.parameters["ticker"]!!
+    val response = httpClient.get("$graphServiceUrl/api/quotes/$ticker/latest")
+    call.respond(response.status, response.bodyAsText())
+}
+
+// Свечи
+get("/api/quotes/{ticker}/stats") {
+    val ticker = call.parameters["ticker"]!!
+    val granularity = call.request.queryParameters["granularity"] ?: "day"
+    val response = httpClient.get("$graphServiceUrl/api/quotes/$ticker/stats") {
+        parameter("granularity", granularity)
+    }
+    call.respond(response.status, response.bodyAsText())
+}
+```
+
+Переменная окружения для APIGateway в общем compose:
+```yaml
+api-gateway:
+  environment:
+    GRAPH_SERVICE_URL: http://graph-service:8083
+```
+
+---
+
+### Порядок запуска сервисов
+
+GraphService зависит от Redis и ClickHouse — они должны быть готовы раньше. Healthcheck для ClickHouse уже прописан в блоке выше. GraphService сам создаёт схему БД при старте, никаких миграций запускать не нужно.
+
+Рекомендуемый порядок через `depends_on`:
+
+```
+Redis, ClickHouse → GraphService, StocksMarketAPI → APIGateway
+```
+
+---
+
+### Проверка после сборки всей системы
+
+```bash
+# GraphService живой
+curl http://localhost:8080/api/tickers        # через APIGateway
+
+# Напрямую (если пробросить порт для отладки)
+curl http://localhost:8083/health
+curl http://localhost:8083/api/tickers
+
+# Проверить что GraphService слушает Redis
+docker exec -it <redis_container> redis-cli PUBSUB NUMSUB stock_prices
+# → stock_prices  1
+
+# Проверить данные в ClickHouse
+docker exec -it <clickhouse_container> clickhouse-client \
+  --query "SELECT count(), min(ts), max(ts) FROM stocksim.quotes"
+```
