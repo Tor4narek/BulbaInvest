@@ -6,7 +6,7 @@ val flywayVersion = "10.20.1"
 val hikariVersion = "6.2.1"
 val jedisVersion = "5.2.0"
 val jwtVersion = "4.4.0"
-val koinVersion = "4.0.0"
+val koinVersion = "4.1.0"
 val jakartaMailVersion = "2.0.3"
 
 plugins {
@@ -81,4 +81,8 @@ dependencies {
 
 kotlin {
     jvmToolchain(21)
+}
+
+tasks.shadowJar {
+    mergeServiceFiles()
 }

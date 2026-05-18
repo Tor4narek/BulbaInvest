@@ -38,7 +38,10 @@ fun ApplicationConfig.loadAppConfig(): AppConfig {
     fun s(path: String) = property(path).getString()
     fun i(path: String) = s(path).toInt()
     fun l(path: String) = s(path).toLong()
-    fun sOrNull(path: String) = propertyOrNull(path)?.getString()?.takeIf { it.isNotBlank() }
+    fun sOrNull(path: String) =
+        propertyOrNull(path)
+            ?.getString()
+            ?.takeIf { it.isNotBlank() && it != "__NONE__" }
 
     return AppConfig(
         db = DbConfig(s("db.jdbcUrl"), s("db.user"), s("db.password")),
