@@ -1,10 +1,11 @@
 FROM gradle:8.7-jdk21 AS build
 WORKDIR /app
 COPY . .
-RUN gradle shadowJar --no-daemon
+RUN gradle installDist --no-daemon
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
-COPY --from=build /app/build/libs/*-all.jar app.jar
+COPY --from=build /app/build/install/graph-service /app
 EXPOSE 8083
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["/app/bin/graph-service"]
+

@@ -1,7 +1,7 @@
 package com.stocksim.graphservice.consumer
 
 import com.stocksim.graphservice.config.AppConfig
-import com.stocksim.graphservice.model.PriceTick
+import com.stocksim.graphservice.model.MarketQuotesEnvelope
 import com.stocksim.graphservice.model.QuoteRow
 import com.stocksim.graphservice.repository.QuoteRepository
 import io.lettuce.core.RedisClient
@@ -68,18 +68,19 @@ class PriceConsumer(
 
     private fun handleMessage(raw: String) {
         try {
-            val tick = json.decodeFromString<PriceTick>(raw)
-            val row = QuoteRow(
-                ticker = tick.ticker.uppercase(),
-                buyPrice = tick.buyPrice,
-                sellPrice = tick.sellPrice,
-                midPrice = (tick.buyPrice + tick.sellPrice) / 2.0,
-                timestamp = tick.timestamp
-            )
-            batch.add(row)
-            logger.trace { "Received tick: $row" }
+            val envelope = json.decodeFromString<MarketQuotesEnvelope>(raw)
+            for (tick in envelope.quotes) {
+                val row = QuoteRow(
+                    ticker = tick.ticker.uppercase(),
+                    price = tick.price,
+                    availableQuantity = tick.availableQuantity,
+                    volatility = tick.volatility,
+                    timestamp = tick.updatedAt
+                )
+                batch.add(row)
+            }
+            logger.trace { "Received ${envelope.quotes.size} ticks from ${envelope.type}" }
 
-            // Eager flush when batch is full
             if (batch.size >= AppConfig.batch.maxSize) {
                 scope?.launch { flushBatch() }
             }
