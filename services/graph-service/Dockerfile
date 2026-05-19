@@ -8,3 +8,4 @@ WORKDIR /app
 COPY --from=build /app/build/install/graph-service /app
 EXPOSE 8083
 ENTRYPOINT ["/app/bin/graph-service"]
+
