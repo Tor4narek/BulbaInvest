@@ -24,11 +24,11 @@ class QuoteRepository(private val conn: Connection) {
         conn.createStatement().use { st ->
             st.execute("""
                 CREATE TABLE IF NOT EXISTS $db.quotes (
-                    ticker      LowCardinality(String),
-                    buy_price   Float64,
-                    sell_price  Float64,
-                    mid_price   Float64,
-                    ts          DateTime('UTC')
+                    ticker              LowCardinality(String),
+                    price               Float64,
+                    available_quantity  Int64,
+                    volatility          Float64,
+                    ts                  DateTime('UTC')
                 )
                 ENGINE = MergeTree()
                 PARTITION BY toYYYYMM(ts)
@@ -37,21 +37,30 @@ class QuoteRepository(private val conn: Connection) {
                 SETTINGS index_granularity = 8192
             """.trimIndent())
         }
+        // Migrate existing table from old schema (buy_price, sell_price, mid_price)
+        // to new schema (price, available_quantity, volatility).
+        conn.createStatement().use { st ->
+            st.execute("ALTER TABLE $db.quotes ADD COLUMN IF NOT EXISTS price Float64")
+            st.execute("ALTER TABLE $db.quotes ADD COLUMN IF NOT EXISTS available_quantity Int64")
+            st.execute("ALTER TABLE $db.quotes ADD COLUMN IF NOT EXISTS volatility Float64")
+            st.execute("ALTER TABLE $db.quotes DROP COLUMN IF EXISTS buy_price")
+            st.execute("ALTER TABLE $db.quotes DROP COLUMN IF EXISTS sell_price")
+            st.execute("ALTER TABLE $db.quotes DROP COLUMN IF EXISTS mid_price")
+        }
         logger.info { "ClickHouse schema initialised (db=$db)" }
     }
 
     fun insertBatch(rows: List<QuoteRow>) {
         if (rows.isEmpty()) return
         val db = AppConfig.clickhouse.database
-        val sql = "INSERT INTO $db.quotes (ticker, buy_price, sell_price, mid_price, ts) VALUES (?, ?, ?, ?, ?)"
+        val sql = "INSERT INTO $db.quotes (ticker, price, available_quantity, volatility, ts) VALUES (?, ?, ?, ?, ?)"
         conn.prepareStatement(sql).use { ps ->
             for (row in rows) {
                 ps.setString(1, row.ticker)
-                ps.setDouble(2, row.buyPrice)
-                ps.setDouble(3, row.sellPrice)
-                ps.setDouble(4, row.midPrice)
-                // DateTime принимает секунды, конвертируем из миллисекунд
-                ps.setLong(5, row.timestamp / 1000L)
+                ps.setDouble(2, row.price)
+                ps.setLong(3, row.availableQuantity)
+                ps.setDouble(4, row.volatility)
+                ps.setLong(5, row.timestamp)
                 ps.addBatch()
             }
             ps.executeBatch()
@@ -67,10 +76,10 @@ class QuoteRepository(private val conn: Connection) {
         val sql = """
             SELECT
                 toString(${intervalFn}(ts)) AS bucket,
-                argMin(mid_price, ts)        AS open,
-                max(mid_price)               AS high,
-                min(mid_price)               AS low,
-                argMax(mid_price, ts)        AS close,
+                argMin(price, ts)            AS open,
+                max(price)                   AS high,
+                min(price)                   AS low,
+                argMax(price, ts)            AS close,
                 count()                      AS volume
             FROM $db.quotes
             WHERE ticker = ?
@@ -103,9 +112,9 @@ class QuoteRepository(private val conn: Connection) {
         val sql = """
             SELECT
                 ticker,
-                buy_price,
-                sell_price,
-                mid_price,
+                price,
+                available_quantity,
+                volatility,
                 toUnixTimestamp(ts) AS ts_sec
             FROM $db.quotes
             WHERE ticker = ?
@@ -119,9 +128,9 @@ class QuoteRepository(private val conn: Connection) {
                 if (rs.next()) {
                     LatestPriceResponse(
                         ticker = rs.getString("ticker"),
-                        buyPrice = rs.getDouble("buy_price"),
-                        sellPrice = rs.getDouble("sell_price"),
-                        midPrice = rs.getDouble("mid_price"),
+                        price = rs.getDouble("price"),
+                        availableQuantity = rs.getLong("available_quantity"),
+                        volatility = rs.getDouble("volatility"),
                         timestamp = rs.getLong("ts_sec") * 1000L
                     )
                 } else null

@@ -3,31 +3,46 @@ package com.stocksim.graphservice.model
 import kotlinx.serialization.Serializable
 
 /**
+ * Envelope from the Redis channel (published by StocksMarketAPI / Go service).
+ *
+ * JSON format:
+ * {"type":"MARKET_QUOTES_UPDATED","quotes":[{"ticker":"AAPL","price":210.50,"availableQuantity":10000,"volatility":0.02,"updatedAt":1779228346},...]}
+ */
+@Serializable
+data class MarketQuotesEnvelope(
+    val type: String,
+    val quotes: List<PriceTick>
+)
+
+/**
  * Raw price tick received from Redis broker.
  * Published by StocksMarketAPI (Go service).
  *
  * JSON format on the channel:
- * {"ticker":"AAPL","buyPrice":120.50,"sellPrice":119.80,"timestamp":1700000000000}
+ * {"ticker":"AAPL","price":210.50,"availableQuantity":10000,"volatility":0.02,"updatedAt":1779228346}
+ *
+ * Note: updatedAt is a Unix epoch timestamp in **seconds**.
  */
 @Serializable
 data class PriceTick(
     val ticker: String,
-    val buyPrice: Double,
-    val sellPrice: Double,
-    /** Unix epoch milliseconds */
-    val timestamp: Long
+    val price: Double,
+    val availableQuantity: Long,
+    val volatility: Double,
+    /** Unix epoch seconds */
+    val updatedAt: Long
 )
 
 /**
  * One row stored in ClickHouse `quotes` table.
+ * timestamp is Unix epoch seconds (ClickHouse DateTime stores seconds).
  */
 data class QuoteRow(
     val ticker: String,
-    val buyPrice: Double,
-    val sellPrice: Double,
-    /** mid = (buy + sell) / 2 — stored for convenience */
-    val midPrice: Double,
-    /** Unix epoch milliseconds */
+    val price: Double,
+    val availableQuantity: Long,
+    val volatility: Double,
+    /** Unix epoch seconds */
     val timestamp: Long
 )
 
@@ -73,12 +88,13 @@ data class StatsResponse(
 
 /**
  * Latest price snapshot for a ticker.
+ * timestamp is Unix epoch milliseconds (converted from ClickHouse seconds).
  */
 @Serializable
 data class LatestPriceResponse(
     val ticker: String,
-    val buyPrice: Double,
-    val sellPrice: Double,
-    val midPrice: Double,
+    val price: Double,
+    val availableQuantity: Long,
+    val volatility: Double,
     val timestamp: Long
 )
