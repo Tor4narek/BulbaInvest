@@ -42,6 +42,20 @@ services:
       - "${MAIL_HOST_PORT}:1025"
       - "${MAILHOG_UI_PORT}:8025"
 
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    ports:
+      - "${CLICKHOUSE_HOST_PORT}:8123"
+      - "${CLICKHOUSE_TCP_PORT}:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./services/graph-service/clickhouse-users.xml:/etc/clickhouse-server/users.d/default-password.xml
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   # --- Apps ---
   domain-service:
     build:
@@ -99,6 +113,27 @@ services:
     ports:
       - "${MARKET_SERVICE_HOST_PORT}:${MARKET_SERVICE_PORT}"
 
+  graph-service:
+    build:
+      context: ./services/graph-service
+      dockerfile: Dockerfile
+    environment:
+      SERVER_PORT: 8083
+      REDIS_HOST: broker-redis
+      REDIS_PORT: 6379
+      REDIS_CHANNEL: market.quotes.updated
+      CLICKHOUSE_URL: jdbc:clickhouse://clickhouse:8123?compress=0
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DATABASE: stocksim
+      BATCH_FLUSH_INTERVAL_SECONDS: 10
+      BATCH_MAX_SIZE: 1000
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      broker-redis:
+        condition: service_healthy
+
   gateway:
     build:
       context: ./Gateway
@@ -112,6 +147,7 @@ services:
       BROKER_REDIS_DB: 0
       BROKER_QUOTES_CHANNEL: ${BROKER_QUOTES_CHANNEL}
       BROKER_STOCK_KEY_PREFIX: ${BROKER_STOCK_KEY_PREFIX}
+      GRAPH_SERVICE_URL: http://graph-service:8083
     depends_on:
       domain-service:
         condition: service_started
@@ -122,3 +158,4 @@ services:
 
 volumes:
   pg_data:
+  clickhouse_data:
