@@ -10,6 +10,7 @@ import com.bulbainvest.gateway.plugins.configureSerialization
 import com.bulbainvest.gateway.plugins.configureStatusPages
 import com.bulbainvest.gateway.plugins.configureWebSockets
 import com.bulbainvest.gateway.presentation.domainProxyRoutes
+import com.bulbainvest.gateway.presentation.graphProxyRoutes
 import com.bulbainvest.gateway.presentation.quoteSocketRoutes
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStarted
@@ -79,6 +80,7 @@ fun Application.gatewayModule(
         }
 
         quoteSocketRoutes(dependencies.quoteSubscriptionUseCase)
+        graphProxyRoutes(dependencies.proxyUseCase)
         domainProxyRoutes(dependencies.proxyUseCase)
     }
 }
