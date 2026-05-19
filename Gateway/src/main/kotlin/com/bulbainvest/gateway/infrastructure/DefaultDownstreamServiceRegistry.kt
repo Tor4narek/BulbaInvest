@@ -14,5 +14,9 @@ class DefaultDownstreamServiceRegistry(
                 service = service,
                 baseUrl = config.services.domain.baseUrl,
             )
+            DownstreamService.GRAPH -> DownstreamTarget(
+                service = service,
+                baseUrl = config.services.graph.baseUrl,
+            )
         }
 }

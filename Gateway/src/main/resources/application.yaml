@@ -8,6 +8,8 @@ ktor:
 services:
   domain:
     baseUrl: "http://localhost:8040"
+  graph:
+    baseUrl: "http://localhost:8083"
 
 brokerRedis:
   host: localhost

@@ -82,6 +82,49 @@ class GatewayModuleTest {
     }
 
     @Test
+    fun `gateway routes graph tickers endpoint to graph service`() = testApplication {
+        val proxyClient = RecordingProxyClient()
+        application {
+            gatewayModule(
+                GatewayDependencies(
+                    proxyUseCase = ProxyUseCase(FakeRegistry(), proxyClient),
+                    quoteSubscriptionUseCase = QuoteSubscriptionUseCase(FakeMarketQuotesStream()),
+                )
+            )
+        }
+
+        val response = client.get("/api/tickers")
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val captured = proxyClient.captured.single()
+        assertEquals("/api/tickers", captured.encodedPath)
+        assertEquals("http://graph-service:8083", captured.target.baseUrl)
+        assertEquals(DownstreamService.GRAPH, captured.target.service)
+    }
+
+    @Test
+    fun `gateway routes graph quote endpoints to graph service and preserves query`() = testApplication {
+        val proxyClient = RecordingProxyClient()
+        application {
+            gatewayModule(
+                GatewayDependencies(
+                    proxyUseCase = ProxyUseCase(FakeRegistry(), proxyClient),
+                    quoteSubscriptionUseCase = QuoteSubscriptionUseCase(FakeMarketQuotesStream()),
+                )
+            )
+        }
+
+        val response = client.get("/api/quotes/aapl/stats?granularity=week")
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val captured = proxyClient.captured.single()
+        assertEquals("/api/quotes/aapl/stats", captured.encodedPath)
+        assertEquals("granularity=week", captured.queryString)
+        assertEquals("http://graph-service:8083", captured.target.baseUrl)
+        assertEquals(DownstreamService.GRAPH, captured.target.service)
+    }
+
+    @Test
     fun `gateway preserves downstream status and content type`() = testApplication {
         application {
             gatewayModule(
@@ -189,7 +232,10 @@ class GatewayModuleTest {
 
     private class FakeRegistry : DownstreamServiceRegistry {
         override fun targetFor(service: DownstreamService): DownstreamTarget =
-            DownstreamTarget(service, "http://domain-service:8040")
+            when (service) {
+                DownstreamService.DOMAIN -> DownstreamTarget(service, "http://domain-service:8040")
+                DownstreamService.GRAPH -> DownstreamTarget(service, "http://graph-service:8083")
+            }
     }
 
     private class FakeMarketQuotesStream(
