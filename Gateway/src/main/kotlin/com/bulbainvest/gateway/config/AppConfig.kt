@@ -48,7 +48,7 @@ fun ApplicationConfig.loadAppConfig(): AppConfig = AppConfig(
             ?: property("brokerRedis.host").getString(),
         port = System.getenv("BROKER_REDIS_PORT")?.toInt()
             ?: property("brokerRedis.port").getString().toInt(),
-        password = System.getenv("BROKER_REDIS_PASSWORD")
+        password = System.getenv("BROKER_REDIS_PASSWORD")?.ifBlank { null }
             ?: property("brokerRedis.password").getString().ifBlank { null },
         db = System.getenv("BROKER_REDIS_DB")?.toInt()
             ?: property("brokerRedis.db").getString().toInt(),
