@@ -13,6 +13,7 @@ plugins {
     kotlin("jvm") version "2.1.0"
     kotlin("plugin.serialization") version "2.1.0"
     application
+    id("com.gradleup.shadow") version "8.3.6"
 }
 
 group = "com.bulbainvest"
