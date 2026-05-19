@@ -25,7 +25,6 @@ import io.ktor.server.application.Application
 import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.application.install
 import io.ktor.server.plugins.cors.routing.CORS
-import io.ktor.server.plugins.swagger.swaggerUI
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
@@ -72,8 +71,6 @@ fun Application.module() {
     configureSecurity(cfg.jwt, jwtService)
 
     routing {
-        swaggerUI(path = "swagger", swaggerFile = "openapi/documentation.yaml")
-
         get("/health") { call.respond(mapOf("status" to "ok")) }
 
         authRoutes(authCodeStore, mailService, userService, jwtService)
