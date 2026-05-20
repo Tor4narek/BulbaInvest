@@ -14,6 +14,10 @@ type Driver interface {
 	ApplySell(ticker string, quantity uint64) error
 }
 
+type InventoryStore interface {
+	SaveQuantity(ctx context.Context, ticker string, quantity uint64) error
+}
+
 type Publisher interface {
 	StoreQuotes(ctx context.Context, quotes []StockQuote) error
 	PublishQuotesUpdated(ctx context.Context, quotes []StockQuote) error
@@ -24,6 +28,7 @@ type Publisher interface {
 type Service struct {
 	driver       Driver
 	publisher    Publisher
+	inventory    InventoryStore
 	tickInterval time.Duration
 	log          *log.Logger
 }
@@ -42,6 +47,10 @@ func NewService(driver Driver, publisher Publisher, tickInterval time.Duration, 
 		tickInterval: tickInterval,
 		log:          logger,
 	}
+}
+
+func (s *Service) SetInventoryStore(store InventoryStore) {
+	s.inventory = store
 }
 
 func (s *Service) StartTickLoop(ctx context.Context) {
@@ -131,6 +140,12 @@ func (s *Service) HandleCompanyBuy(ctx context.Context, event CompanyBuyRequeste
 	}
 	result.Accepted = true
 
+	if s.inventory != nil {
+		if err := s.inventory.SaveQuantity(ctx, result.Ticker, result.RemainingAvailableQuantity); err != nil {
+			return result, err
+		}
+	}
+
 	if err := s.publisher.StoreQuotes(ctx, quotes); err != nil {
 		return result, err
 	}
@@ -182,6 +197,12 @@ func (s *Service) HandleCompanySell(ctx context.Context, event CompanySellReques
 		result.RemainingAvailableQuantity = next.AvailableQuantity
 	}
 	result.Accepted = true
+
+	if s.inventory != nil {
+		if err := s.inventory.SaveQuantity(ctx, result.Ticker, result.RemainingAvailableQuantity); err != nil {
+			return result, err
+		}
+	}
 
 	if err := s.publisher.StoreQuotes(ctx, quotes); err != nil {
 		return result, err

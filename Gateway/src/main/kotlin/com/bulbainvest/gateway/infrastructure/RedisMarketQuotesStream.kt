@@ -22,9 +22,9 @@ class RedisMarketQuotesStream(
 ) : MarketQuotesStream {
     private val log = LoggerFactory.getLogger(RedisMarketQuotesStream::class.java)
     private val json = Json { ignoreUnknownKeys = true }
-    private val updatesFlow = MutableSharedFlow<StockQuote>(
+    private val updatesFlow = MutableSharedFlow<QuotesUpdatedEvent>(
         replay = 0,
-        extraBufferCapacity = 256,
+        extraBufferCapacity = 64,
     )
     private val running = AtomicBoolean(false)
     private val pool = JedisPool(
@@ -42,7 +42,7 @@ class RedisMarketQuotesStream(
     @Volatile
     private var pubSub: JedisPubSub? = null
 
-    override val updates: SharedFlow<StockQuote> = updatesFlow.asSharedFlow()
+    override val updates: SharedFlow<QuotesUpdatedEvent> = updatesFlow.asSharedFlow()
 
     override suspend fun currentQuote(ticker: String): StockQuote? {
         val key = config.stockKeyPrefix + ticker.uppercase()
@@ -124,8 +124,6 @@ class RedisMarketQuotesStream(
             return
         }
 
-        event.quotes.forEach { quote ->
-            updatesFlow.tryEmit(quote)
-        }
+        updatesFlow.tryEmit(event)
     }
 }

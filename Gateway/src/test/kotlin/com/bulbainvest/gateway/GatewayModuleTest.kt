@@ -11,6 +11,7 @@ import com.bulbainvest.gateway.domain.GatewayTimeoutException
 import com.bulbainvest.gateway.domain.MarketQuotesStream
 import com.bulbainvest.gateway.domain.ProxyRequest
 import com.bulbainvest.gateway.domain.ProxyResponse
+import com.bulbainvest.gateway.domain.QuotesUpdatedEvent
 import com.bulbainvest.gateway.domain.StockQuote
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -135,9 +136,9 @@ class GatewayModuleTest {
             )
         }
 
-        val response = client.post("/api/wallets") {
+        val response = client.post("/api/orders/sell") {
             contentType(ContentType.Application.Json)
-            setBody("""{"currency":"USD"}""")
+            setBody("""{"ticker":"AAPL","quantity":"1","price":"150.00"}""")
         }
 
         assertEquals(HttpStatusCode.Created, response.status)
@@ -179,7 +180,7 @@ class GatewayModuleTest {
     }
 
     @Test
-    fun `websocket sends current quote and later matching updates only`() = testApplication {
+    fun `websocket sends current quotes and later matching updates for all requested tickers`() = testApplication {
         val marketQuotesStream = FakeMarketQuotesStream(
             currentQuotes = mapOf(
                 "AAPL" to StockQuote(
@@ -187,7 +188,13 @@ class GatewayModuleTest {
                     price = 192.45,
                     availableQuantity = 10_000,
                     updatedAt = 1710000000,
-                )
+                ),
+                "MSFT" to StockQuote(
+                    ticker = "MSFT",
+                    price = 401.11,
+                    availableQuantity = 2_000,
+                    updatedAt = 1710000001,
+                ),
             )
         )
 
@@ -204,30 +211,47 @@ class GatewayModuleTest {
             install(WebSockets)
         }
 
-        val session = wsClient.webSocketSession("/ws/quotes?ticker=AAPL")
+        val session = wsClient.webSocketSession("/ws/quotes?ticker=AAPL&ticker=MSFT")
 
         val initialFrame = session.incoming.receive() as Frame.Text
-        assertTrue(initialFrame.readText().contains(""""ticker":"AAPL""""))
+        val initialPayload = initialFrame.readText()
+        assertTrue(initialPayload.startsWith("["))
+        assertTrue(initialPayload.contains(""""ticker":"AAPL""""))
+        assertTrue(initialPayload.contains(""""ticker":"MSFT""""))
 
         marketQuotesStream.emit(
-            StockQuote(
-                ticker = "MSFT",
-                price = 401.11,
-                availableQuantity = 2_000,
-                updatedAt = 1710000001,
-            )
-        )
-        marketQuotesStream.emit(
-            StockQuote(
-                ticker = "AAPL",
-                price = 193.10,
-                availableQuantity = 9_900,
-                updatedAt = 1710000002,
+            QuotesUpdatedEvent(
+                type = "MARKET_QUOTES_UPDATED",
+                quotes = listOf(
+                    StockQuote(
+                        ticker = "GOOG",
+                        price = 155.33,
+                        availableQuantity = 3_000,
+                        updatedAt = 1710000002,
+                    ),
+                    StockQuote(
+                        ticker = "MSFT",
+                        price = 402.0,
+                        availableQuantity = 1_950,
+                        updatedAt = 1710000003,
+                    ),
+                    StockQuote(
+                        ticker = "AAPL",
+                        price = 193.10,
+                        availableQuantity = 9_900,
+                        updatedAt = 1710000004,
+                    ),
+                ),
             )
         )
 
         val nextFrame = session.incoming.receive() as Frame.Text
-        assertTrue(nextFrame.readText().contains(""""price":193.1"""))
+        val nextPayload = nextFrame.readText()
+        assertTrue(nextPayload.startsWith("["))
+        assertTrue(nextPayload.contains(""""ticker":"AAPL""""))
+        assertTrue(nextPayload.contains(""""ticker":"MSFT""""))
+        assertTrue(nextPayload.contains(""""price":193.1"""))
+        assertTrue(!nextPayload.contains(""""ticker":"GOOG""""))
     }
 
     private class FakeRegistry : DownstreamServiceRegistry {
@@ -241,9 +265,9 @@ class GatewayModuleTest {
     private class FakeMarketQuotesStream(
         private val currentQuotes: Map<String, StockQuote> = emptyMap(),
     ) : MarketQuotesStream {
-        private val updatesFlow = MutableSharedFlow<StockQuote>(extraBufferCapacity = 16)
+        private val updatesFlow = MutableSharedFlow<QuotesUpdatedEvent>(extraBufferCapacity = 16)
 
-        override val updates: SharedFlow<StockQuote> = updatesFlow.asSharedFlow()
+        override val updates: SharedFlow<QuotesUpdatedEvent> = updatesFlow.asSharedFlow()
 
         override suspend fun currentQuote(ticker: String): StockQuote? = currentQuotes[ticker]
 
@@ -251,8 +275,8 @@ class GatewayModuleTest {
 
         override fun stop() = Unit
 
-        fun emit(quote: StockQuote) {
-            updatesFlow.tryEmit(quote)
+        fun emit(event: QuotesUpdatedEvent) {
+            updatesFlow.tryEmit(event)
         }
     }
 

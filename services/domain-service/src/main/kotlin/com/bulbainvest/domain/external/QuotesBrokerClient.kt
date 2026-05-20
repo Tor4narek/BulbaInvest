@@ -7,17 +7,8 @@ import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import redis.clients.jedis.JedisPool
 import java.math.BigDecimal
+import java.time.Instant
 
-/**
- * Чтение последней котировки из Redis-брокера.
- *
- * Контракт публикации со стороны StocksService см. docs/quotes-broker.md
- *
- * Ключ:   <quotesKeyPrefix><TICKER>            например: "quotes:last:AAPL"
- * Тип:    String с JSON-payload (см. [Quote])
- * Опц.:   Pub/Sub канал "<quotesKeyPrefix>updates" с тем же payload — для live-обновлений.
- *         Domain сейчас читает только snapshot, подписка не нужна.
- */
 class QuotesBrokerClient(
     private val pool: JedisPool,
     private val cfg: BrokerRedisConfig,
@@ -36,7 +27,7 @@ class QuotesBrokerClient(
         return try {
             pool.resource.use { jedis ->
                 val raw = jedis.get(key) ?: return null
-                json.decodeFromString<Quote>(raw)
+                parseQuote(raw)
             }
         } catch (e: Exception) {
             log.error("Failed to read/parse quote for {} (key={}): {}", ticker, key, e.message)
@@ -44,14 +35,34 @@ class QuotesBrokerClient(
         }
     }
 
+    private fun parseQuote(raw: String): Quote {
+        runCatching { json.decodeFromString<Quote>(raw) }
+            .getOrNull()
+            ?.let { return it }
+
+        val marketQuote = json.decodeFromString<MarketQuote>(raw)
+        return Quote(
+            ticker = marketQuote.ticker,
+            price = BigDecimal.valueOf(marketQuote.price).toPlainString(),
+            timestamp = Instant.ofEpochSecond(marketQuote.updatedAt).toString(),
+        )
+    }
+
     @Serializable
     data class Quote(
         val ticker: String,
-        val price: String,          // last trade price, decimal as string
-        val bid: String? = null,    // лучшая цена покупки
-        val ask: String? = null,    // лучшая цена продажи
-        val volume: Long? = null,   // объём за сессию
-        val timestamp: String,      // ISO-8601 UTC, e.g. "2026-05-12T10:00:00Z"
-        val source: String? = null, // например "MOEX"
+        val price: String,
+        val bid: String? = null,
+        val ask: String? = null,
+        val volume: Long? = null,
+        val timestamp: String,
+        val source: String? = null,
+    )
+
+    @Serializable
+    data class MarketQuote(
+        val ticker: String,
+        val price: Double,
+        val updatedAt: Long,
     )
 }

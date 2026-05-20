@@ -43,7 +43,7 @@ fun appModule(cfg: AppConfig) = module {
     }
 
     single { UserService(cfg) }
-    single { WalletService(cfg) }
+    single { WalletService() }
     single { PortfolioService() }
     single { TradeService(get(), get()) }
     single { OrderService() }

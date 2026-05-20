@@ -59,6 +59,19 @@ type fakePublisher struct {
 	buyResults []CompanyBuyResult
 }
 
+type fakeInventoryStore struct {
+	ticker   string
+	quantity uint64
+	calls    int
+}
+
+func (s *fakeInventoryStore) SaveQuantity(_ context.Context, ticker string, quantity uint64) error {
+	s.ticker = ticker
+	s.quantity = quantity
+	s.calls++
+	return nil
+}
+
 func (p *fakePublisher) StoreQuotes(context.Context, []StockQuote) error {
 	return nil
 }
@@ -80,6 +93,8 @@ func TestHandleCompanyBuyAccepted(t *testing.T) {
 	driver := &fakeDriver{quotes: []StockQuote{{Ticker: "AAPL", Price: 100, AvailableQuantity: 10, UpdatedAtUnix: time.Now().Unix()}}}
 	publisher := &fakePublisher{}
 	service := NewService(driver, publisher, time.Second, nil)
+	store := &fakeInventoryStore{}
+	service.SetInventoryStore(store)
 
 	result, err := service.HandleCompanyBuy(context.Background(), CompanyBuyRequested{
 		EventID:  "evt-1",
@@ -95,6 +110,9 @@ func TestHandleCompanyBuyAccepted(t *testing.T) {
 	}
 	if result.RemainingAvailableQuantity != 7 {
 		t.Fatalf("RemainingAvailableQuantity = %d, want 7", result.RemainingAvailableQuantity)
+	}
+	if store.calls != 1 || store.ticker != "AAPL" || store.quantity != 7 {
+		t.Fatalf("inventory store = %+v, want ticker=AAPL quantity=7 calls=1", store)
 	}
 }
 

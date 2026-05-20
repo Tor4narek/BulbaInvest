@@ -17,27 +17,28 @@ private val quoteSocketJson = Json { encodeDefaults = true }
 
 fun Route.quoteSocketRoutes(quoteSubscriptionUseCase: QuoteSubscriptionUseCase) {
     webSocket("/ws/quotes") {
-        val ticker = quoteSubscriptionUseCase.normalizeTicker(call.request.queryParameters["ticker"])
-        if (ticker == null) {
+        val tickers = quoteSubscriptionUseCase.requestTickers(call.request.queryParameters)
+        if (tickers.isEmpty()) {
             close(
                 CloseReason(
                     CloseReason.Codes.CANNOT_ACCEPT,
-                    "ticker query parameter is required",
+                    "at least one ticker query parameter is required",
                 )
             )
             return@webSocket
         }
 
-        quoteSubscriptionUseCase.currentQuote(ticker)?.let { quote ->
-            sendQuote(quote)
+        val currentQuotes = quoteSubscriptionUseCase.currentQuotes(tickers)
+        if (currentQuotes.isNotEmpty()) {
+            sendQuotes(currentQuotes)
         }
 
-        quoteSubscriptionUseCase.updatesFor(ticker).collect { quote ->
-            sendQuote(quote)
+        quoteSubscriptionUseCase.updatesFor(tickers).collect { quotes ->
+            sendQuotes(quotes)
         }
     }
 }
 
-private suspend fun WebSocketSession.sendQuote(quote: StockQuote) {
-    send(Frame.Text(quoteSocketJson.encodeToString(quote)))
+private suspend fun WebSocketSession.sendQuotes(quotes: List<StockQuote>) {
+    send(Frame.Text(quoteSocketJson.encodeToString(quotes)))
 }

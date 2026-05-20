@@ -15,7 +15,7 @@ class GraphService(private val repo: QuoteRepository) {
         val candles = repo.getCandles(ticker.uppercase(), granularity)
         return StatsResponse(
             ticker = ticker.uppercase(),
-            granularity = granularity.name.lowercase(),
+            granularity = granularity.apiValue,
             candles = candles
         )
     }

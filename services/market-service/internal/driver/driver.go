@@ -47,6 +47,10 @@ func (PackageDriver) ApplySell(ticker string, quantity uint64) error {
 	return ApplySell(ticker, quantity)
 }
 
+func (PackageDriver) SetAvailableQuantity(ticker string, quantity uint64) error {
+	return SetAvailableQuantity(ticker, quantity)
+}
+
 func Init(configPath string) error {
 	mu.Lock()
 	defer mu.Unlock()
@@ -124,6 +128,19 @@ func ApplySell(ticker string, quantity uint64) error {
 
 	if rc := C.exchange_apply_sell(cTicker, C.uint64_t(quantity)); rc != 0 {
 		return exchangeError("sell", int(rc))
+	}
+	return nil
+}
+
+func SetAvailableQuantity(ticker string, quantity uint64) error {
+	mu.Lock()
+	defer mu.Unlock()
+
+	cTicker := C.CString(ticker)
+	defer C.free(unsafe.Pointer(cTicker))
+
+	if rc := C.exchange_set_available_quantity(cTicker, C.uint64_t(quantity)); rc != 0 {
+		return exchangeError("set available quantity", int(rc))
 	}
 	return nil
 }

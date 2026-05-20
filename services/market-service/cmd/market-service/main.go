@@ -14,6 +14,7 @@ import (
 
 	"github.com/BaraGodLike/BulbaInvest/services/market-service/internal/config"
 	"github.com/BaraGodLike/BulbaInvest/services/market-service/internal/driver"
+	"github.com/BaraGodLike/BulbaInvest/services/market-service/internal/inventorypg"
 	"github.com/BaraGodLike/BulbaInvest/services/market-service/internal/market"
 	marketredis "github.com/BaraGodLike/BulbaInvest/services/market-service/internal/redis"
 )
@@ -30,9 +31,27 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	inventoryRepo, err := inventorypg.Open(ctx, cfg.InventoryDB, logger)
+	if err != nil {
+		logger.Fatalf("inventory repository init failed: %v", err)
+	}
+	if inventoryRepo != nil {
+		defer func() {
+			if err := inventoryRepo.Close(); err != nil {
+				logger.Printf("inventory repository close failed: %v", err)
+			}
+		}()
+		if err := restoreAvailableQuantities(ctx, inventoryRepo, logger); err != nil {
+			logger.Fatalf("inventory restore failed: %v", err)
+		}
+	}
+
 	redisClient := marketredis.NewClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
 	publisher := marketredis.NewPublisher(redisClient)
 	service := market.NewService(driver.New(), publisher, cfg.TickInterval, logger)
+	if inventoryRepo != nil {
+		service.SetInventoryStore(inventoryRepo)
+	}
 	consumer := marketredis.NewConsumer(redisClient, service, cfg.ConsumerGroup, cfg.ConsumerName, logger)
 
 	go service.StartTickLoop(ctx)
@@ -40,7 +59,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           routes(ctx, service, publisher),
+		Handler:           routes(ctx, service, publisher, redisClient),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -60,11 +79,14 @@ func main() {
 	}
 }
 
-func routes(ctx context.Context, service *market.Service, publisher *marketredis.Publisher) http.Handler {
+func routes(ctx context.Context, service inventoryService, publisher quoteReader, redisClient redisCommander) http.Handler {
 	mux := http.NewServeMux()
+	inventoryHandler := newInventoryHandler(ctx, service, redisClient)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	mux.HandleFunc("POST /api/v1/inventory/decrement", inventoryHandler.handleDecrement)
+	mux.HandleFunc("POST /api/v1/inventory/increment", inventoryHandler.handleIncrement)
 	mux.HandleFunc("GET /stocks", func(w http.ResponseWriter, _ *http.Request) {
 		quotes, err := publisher.LoadQuotes(ctx)
 		if err != nil || len(quotes) == 0 {
@@ -105,7 +127,31 @@ func routes(ctx context.Context, service *market.Service, publisher *marketredis
 	return mux
 }
 
-func snapshotQuote(service *market.Service, ticker string) (market.StockQuote, bool, error) {
+type inventorySnapshotLoader interface {
+	LoadQuantities(ctx context.Context) (map[string]uint64, error)
+}
+
+func restoreAvailableQuantities(ctx context.Context, loader inventorySnapshotLoader, logger *log.Logger) error {
+	quantities, err := loader.LoadQuantities(ctx)
+	if err != nil {
+		return err
+	}
+	for ticker, quantity := range quantities {
+		if err := driver.SetAvailableQuantity(ticker, quantity); err != nil {
+			if errors.Is(err, driver.ErrUnknownTicker) {
+				logger.Printf("market inventory restore skipped ticker=%s reason=unknown ticker in driver", ticker)
+				continue
+			}
+			return err
+		}
+	}
+	if len(quantities) > 0 {
+		logger.Printf("market inventory restored tickers=%d", len(quantities))
+	}
+	return nil
+}
+
+func snapshotQuote(service inventoryService, ticker string) (market.StockQuote, bool, error) {
 	quotes, err := service.Snapshot()
 	if err != nil {
 		return market.StockQuote{}, false, err

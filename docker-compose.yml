@@ -16,6 +16,22 @@ services:
       timeout: 3s
       retries: 10
 
+  market-postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ${MARKET_DB_NAME:-market_service}
+      POSTGRES_USER: ${MARKET_DB_USER:-market_user}
+      POSTGRES_PASSWORD: ${MARKET_DB_PASSWORD:-market_password}
+    ports:
+      - "${MARKET_DB_HOST_PORT:-5434}:5432"
+    volumes:
+      - market_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${MARKET_DB_USER:-market_user} -d ${MARKET_DB_NAME:-market_service}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   redis:
     image: redis:7-alpine
     ports:
@@ -59,7 +75,7 @@ services:
   # --- Apps ---
   domain-service:
     build:
-      context: ./DomainServiceAPI
+      context: ./services/domain-service
       dockerfile: Dockerfile
     environment:
       PORT: ${DOMAIN_PORT}
@@ -105,9 +121,17 @@ services:
       REDIS_ADDR: "${BROKER_REDIS_HOST}:6379" # Market service publishes to broker-redis
       REDIS_PASSWORD: ""
       REDIS_DB: "0"
+      MARKET_DB_HOST: market-postgres
+      MARKET_DB_PORT: 5432
+      MARKET_DB_NAME: ${MARKET_DB_NAME:-market_service}
+      MARKET_DB_USER: ${MARKET_DB_USER:-market_user}
+      MARKET_DB_PASSWORD: ${MARKET_DB_PASSWORD:-market_password}
+      MARKET_DB_SSLMODE: disable
       MARKET_CONSUMER_GROUP: "market-service"
       MARKET_CONSUMER_NAME: "market-service-1"
     depends_on:
+      market-postgres:
+        condition: service_healthy
       broker-redis:
         condition: service_healthy
     ports:
@@ -158,4 +182,5 @@ services:
 
 volumes:
   pg_data:
+  market_pg_data:
   clickhouse_data:

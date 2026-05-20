@@ -87,7 +87,7 @@ The service creates the Redis consumer group automatically. Processed `eventId` 
 
 ```env
 HTTP_ADDR=:8050
-MARKET_TICK_INTERVAL=10s
+MARKET_TICK_INTERVAL=500ms
 REDIS_ADDR=localhost:6379
 REDIS_PASSWORD=
 REDIS_DB=0
@@ -186,7 +186,7 @@ CGO_ENABLED=1 go build ./cmd/market-service
 From the repository root:
 
 ```bash
-docker compose -f DomainServiceAPI/docker-compose.yml up --build market-service redis
+docker compose -f services/domain-service/docker-compose.yml up --build market-service redis
 ```
 
 The Dockerfile builds the C tests, Go tests, and the cgo-enabled service binary.
