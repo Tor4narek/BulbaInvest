@@ -7,20 +7,21 @@ RUN apk add --no-cache curl unzip bash \
  && unzip -q /tmp/gradle.zip -d /opt \
  && ln -s /opt/gradle-${GRADLE_VERSION}/bin/gradle /usr/local/bin/gradle \
  && rm /tmp/gradle.zip
-ENV GRADLE_USER_HOME=/root/.gradle-domain
+ENV GRADLE_USER_HOME=/root/.gradle-gateway
 WORKDIR /src
 
-COPY settings.gradle.kts build.gradle.kts gradle.properties ./
-RUN --mount=type=cache,target=/root/.gradle-domain \
+COPY settings.gradle.kts build.gradle.kts ./
+
+RUN --mount=type=cache,target=/root/.gradle-gateway \
     gradle --no-daemon dependencies --quiet || true
 
 COPY . .
-RUN --mount=type=cache,target=/root/.gradle-domain \
+RUN --mount=type=cache,target=/root/.gradle-gateway \
     gradle --no-daemon clean installDist
 
 # Stage 2: runtime
 FROM amazoncorretto:21-alpine
 WORKDIR /app
-COPY --from=build /src/build/install/domain-service /app
-EXPOSE 8040
-ENTRYPOINT ["/app/bin/domain-service"]
+COPY --from=build /src/build/install/gateway /app
+EXPOSE 8050
+ENTRYPOINT ["/app/bin/gateway"]

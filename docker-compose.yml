@@ -1,0 +1,161 @@
+services:
+  # --- Infrastructure ---
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "${DB_HOST_PORT}:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_HOST_PORT}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  broker-redis:
+    image: redis:7-alpine
+    ports:
+      - "${BROKER_REDIS_HOST_PORT}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "${MAIL_HOST_PORT}:1025"
+      - "${MAILHOG_UI_PORT}:8025"
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    ports:
+      - "${CLICKHOUSE_HOST_PORT}:8123"
+      - "${CLICKHOUSE_TCP_PORT}:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./services/graph-service/clickhouse-users.xml:/etc/clickhouse-server/users.d/default-password.xml
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # --- Apps ---
+  domain-service:
+    build:
+      context: ./DomainServiceAPI
+      dockerfile: Dockerfile
+    environment:
+      PORT: ${DOMAIN_PORT}
+      DB_URL: ${DB_URL}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      BROKER_REDIS_HOST: ${BROKER_REDIS_HOST}
+      BROKER_REDIS_PORT: ${BROKER_REDIS_PORT}
+      BROKER_QUOTES_PREFIX: ${BROKER_QUOTES_PREFIX}
+      MAIL_HOST: ${MAIL_HOST}
+      MAIL_PORT: ${MAIL_PORT}
+      MAIL_FROM: ${MAIL_FROM}
+      MAIL_USER: ${MAIL_USER}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      STOCKS_MARKET_API_URL: ${STOCKS_MARKET_API_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ISSUER: ${JWT_ISSUER}
+      JWT_AUDIENCE: ${JWT_AUDIENCE}
+      JWT_REALM: ${JWT_REALM}
+      JWT_TTL: ${JWT_TTL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      broker-redis:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+    ports:
+      - "${DOMAIN_HOST_PORT}:${DOMAIN_PORT}"
+
+  market-service:
+    build:
+      context: ./services/market-service
+      dockerfile: Dockerfile
+    environment:
+      HTTP_ADDR: ":${MARKET_SERVICE_PORT}"
+      MARKET_TICK_INTERVAL: "${MARKET_TICK_INTERVAL}"
+      MARKET_DRIVER_CONFIG: "${MARKET_DRIVER_CONFIG}"
+      REDIS_ADDR: "${BROKER_REDIS_HOST}:6379" # Market service publishes to broker-redis
+      REDIS_PASSWORD: ""
+      REDIS_DB: "0"
+      MARKET_CONSUMER_GROUP: "market-service"
+      MARKET_CONSUMER_NAME: "market-service-1"
+    depends_on:
+      broker-redis:
+        condition: service_healthy
+    ports:
+      - "${MARKET_SERVICE_HOST_PORT}:${MARKET_SERVICE_PORT}"
+
+  graph-service:
+    build:
+      context: ./services/graph-service
+      dockerfile: Dockerfile
+    environment:
+      SERVER_PORT: 8083
+      REDIS_HOST: broker-redis
+      REDIS_PORT: 6379
+      REDIS_CHANNEL: market.quotes.updated
+      CLICKHOUSE_URL: jdbc:clickhouse://clickhouse:8123?compress=0
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DATABASE: stocksim
+      BATCH_FLUSH_INTERVAL_SECONDS: 10
+      BATCH_MAX_SIZE: 1000
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      broker-redis:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: ./Gateway
+      dockerfile: Dockerfile
+    environment:
+      PORT: ${GATEWAY_PORT}
+      DOMAIN_SERVICE_URL: ${DOMAIN_SERVICE_URL}
+      BROKER_REDIS_HOST: ${BROKER_REDIS_HOST}
+      BROKER_REDIS_PORT: ${BROKER_REDIS_PORT}
+      BROKER_REDIS_PASSWORD: ""
+      BROKER_REDIS_DB: 0
+      BROKER_QUOTES_CHANNEL: ${BROKER_QUOTES_CHANNEL}
+      BROKER_STOCK_KEY_PREFIX: ${BROKER_STOCK_KEY_PREFIX}
+      GRAPH_SERVICE_URL: http://graph-service:8083
+    depends_on:
+      domain-service:
+        condition: service_started
+      broker-redis:
+        condition: service_healthy
+    ports:
+      - "${GATEWAY_HOST_PORT}:${GATEWAY_PORT}"
+
+volumes:
+  pg_data:
+  clickhouse_data:

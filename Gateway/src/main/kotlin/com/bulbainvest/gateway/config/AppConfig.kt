@@ -10,6 +10,7 @@ data class AppConfig(
 
 data class ServicesConfig(
     val domain: ServiceConfig,
+    val graph: ServiceConfig,
 )
 
 data class ServiceConfig(
@@ -37,13 +38,17 @@ fun ApplicationConfig.loadAppConfig(): AppConfig = AppConfig(
             baseUrl = System.getenv("DOMAIN_SERVICE_URL")
                 ?: property("services.domain.baseUrl").getString(),
         ),
+        graph = ServiceConfig(
+            baseUrl = System.getenv("GRAPH_SERVICE_URL")
+                ?: property("services.graph.baseUrl").getString(),
+        ),
     ),
     brokerRedis = BrokerRedisConfig(
         host = System.getenv("BROKER_REDIS_HOST")
             ?: property("brokerRedis.host").getString(),
         port = System.getenv("BROKER_REDIS_PORT")?.toInt()
             ?: property("brokerRedis.port").getString().toInt(),
-        password = System.getenv("BROKER_REDIS_PASSWORD")
+        password = System.getenv("BROKER_REDIS_PASSWORD")?.ifBlank { null }
             ?: property("brokerRedis.password").getString().ifBlank { null },
         db = System.getenv("BROKER_REDIS_DB")?.toInt()
             ?: property("brokerRedis.db").getString().toInt(),

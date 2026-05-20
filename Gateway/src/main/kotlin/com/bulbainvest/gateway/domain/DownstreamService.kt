@@ -2,6 +2,7 @@ package com.bulbainvest.gateway.domain
 
 enum class DownstreamService {
     DOMAIN,
+    GRAPH,
 }
 
 data class DownstreamTarget(
