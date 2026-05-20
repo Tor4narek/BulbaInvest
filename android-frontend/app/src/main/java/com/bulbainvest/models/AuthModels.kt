@@ -5,6 +5,9 @@ data class CodeRequest(
     val email: String
 )
 
+data class DepositRequest(
+    val amount: String
+)
 data class ConfirmRequest(
     val email: String,
     val code: String

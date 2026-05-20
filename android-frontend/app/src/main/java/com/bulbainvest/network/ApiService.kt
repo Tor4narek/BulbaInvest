@@ -87,6 +87,9 @@ interface ApiService {
     @GET("api/orders/my")
     suspend fun getMyOrders(): List<SellOrder>
 
+    @POST("api/wallets/me/deposit")
+    suspend fun depositWallet(@Body request: DepositRequest): UserWallet
+
     // Trades history
     @GET("api/trades")
     suspend fun getTrades(

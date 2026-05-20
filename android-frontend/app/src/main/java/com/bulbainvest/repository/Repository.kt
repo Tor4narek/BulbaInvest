@@ -8,6 +8,15 @@ import kotlinx.coroutines.withContext
 
 class Repository(private val apiService: ApiService) {
 
+    suspend fun depositWallet(amount: String): Result<UserWallet> = withContext(Dispatchers.IO) {
+        try {
+            val response = apiService.depositWallet(DepositRequest(amount))
+            Result.success(response)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     // Auth
     suspend fun requestCode(email: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {

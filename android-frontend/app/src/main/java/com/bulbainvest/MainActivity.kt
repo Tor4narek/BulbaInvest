@@ -11,11 +11,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.bulbainvest.network.RetrofitClient
 import com.bulbainvest.repository.Repository
 import com.bulbainvest.ui.screens.*
 import com.bulbainvest.ui.theme.BulbaInvestTheme
 import com.bulbainvest.utils.TokenManager
+import com.bulbainvest.viewmodels.MarketViewModel
+import com.bulbainvest.viewmodels.MarketViewModelFactory
 import com.bulbainvest.websocket.WebSocketManager
 import kotlinx.coroutines.launch
 
@@ -51,8 +54,11 @@ class MainActivity : ComponentActivity() {
         var isLoading by remember { mutableStateOf(true) }
         var currentScreen by remember { mutableStateOf(Screen.Portfolio) }
         var selectedTicker by remember { mutableStateOf("AAPL") }
-        var selectedPrice by remember { mutableStateOf(0.0) } // Добавить переменную для цены
         val coroutineScope = rememberCoroutineScope()
+
+        val marketViewModel: MarketViewModel = viewModel(
+            factory = MarketViewModelFactory(repository, webSocketManager)
+        )
 
         LaunchedEffect(Unit) {
             val token = tokenManager.getToken()
@@ -82,23 +88,38 @@ class MainActivity : ComponentActivity() {
                     }
                 )
             }
-
+            currentScreen == Screen.Portfolio -> {
+                PortfolioScreen(
+                    repository = repository,
+                    onLogout = {
+                        coroutineScope.launch {
+                            tokenManager.clearAuthToken()
+                            isLoggedIn = false
+                        }
+                    },
+                    onTradeClick = { ticker ->
+                        selectedTicker = ticker
+                        currentScreen = Screen.TradeCompany
+                    },
+                    onMarketClick = {
+                        currentScreen = Screen.Market
+                    }
+                )
+            }
             currentScreen == Screen.Market -> {
                 MarketScreen(
-                    repository = repository,
-                    webSocketManager = webSocketManager,
-                    onTickerClick = { ticker, price ->
+                    marketViewModel = marketViewModel,
+                    onTickerClick = { ticker, _ ->
                         selectedTicker = ticker
                         currentScreen = Screen.StockDetails
                     },
                     onBack = { currentScreen = Screen.Portfolio }
                 )
             }
-
             currentScreen == Screen.StockDetails -> {
                 StockDetailsScreen(
                     repository = repository,
-                    webSocketManager = webSocketManager,
+                    marketViewModel = marketViewModel,
                     ticker = selectedTicker,
                     onBack = { currentScreen = Screen.Market },
                     onTradeClick = {
@@ -109,6 +130,7 @@ class MainActivity : ComponentActivity() {
             currentScreen == Screen.TradeCompany -> {
                 TradeCompanyScreen(
                     repository = repository,
+                    marketViewModel = marketViewModel,  // ← добавить marketViewModel
                     ticker = selectedTicker,
                     onBack = { currentScreen = Screen.StockDetails },
                     onTradeComplete = { _, _, _ ->

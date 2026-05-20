@@ -4,6 +4,7 @@ import android.util.Log
 import kotlinx.coroutines.*
 import okhttp3.*
 import okio.ByteString
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
@@ -21,26 +22,28 @@ class WebSocketManager {
         private const val WS_BASE_URL = "wss://bulba.onix.fun/api/ws/quotes"
     }
 
-    private var currentClient: OkHttpClient? = null
-    private var currentWebSocket: WebSocket? = null
-    private var currentTicker: String? = null
-    private var reconnectAttempts = 0
-    private val maxReconnectAttempts = 10
-    private var reconnectJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-
+    private val activeSockets = mutableMapOf<String, WebSocket>()
+    private val activeClients = mutableMapOf<String, OkHttpClient>()
     private val tickerCallbacks = mutableMapOf<String, MutableList<(QuoteUpdate) -> Unit>>()
-    private val connectionCallbacks = mutableListOf<(Boolean) -> Unit>()
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var reconnectJob: Job? = null
 
     fun subscribeToQuote(ticker: String, callback: (QuoteUpdate) -> Unit) {
-        val normalizedTicker = ticker.uppercase()
+        subscribeToQuotes(listOf(ticker), callback)
+    }
 
-        synchronized(tickerCallbacks) {
-            tickerCallbacks.getOrPut(normalizedTicker) { mutableListOf() }.add(callback)
+    fun subscribeToQuotes(tickers: List<String>, callback: (QuoteUpdate) -> Unit) {
+        val normalizedTickers = tickers.map { it.uppercase() }
+
+        normalizedTickers.forEach { ticker ->
+            synchronized(tickerCallbacks) {
+                tickerCallbacks.getOrPut(ticker) { mutableListOf() }.add(callback)
+            }
         }
 
-        if (tickerCallbacks[normalizedTicker]?.size == 1) {
-            connectForTicker(normalizedTicker)
+        val socketKey = normalizedTickers.sorted().joinToString(",")
+        if (!activeSockets.containsKey(socketKey)) {
+            connectForTickers(normalizedTickers)
         }
     }
 
@@ -51,35 +54,18 @@ class WebSocketManager {
             tickerCallbacks[normalizedTicker]?.remove(callback)
             if (tickerCallbacks[normalizedTicker].isNullOrEmpty()) {
                 tickerCallbacks.remove(normalizedTicker)
-                if (currentTicker == normalizedTicker) {
-                    disconnect()
-                }
             }
         }
     }
 
-    fun addConnectionListener(callback: (Boolean) -> Unit) {
-        connectionCallbacks.add(callback)
-    }
-
-    fun removeConnectionListener(callback: (Boolean) -> Unit) {
-        connectionCallbacks.remove(callback)
-    }
-
-    private fun connectForTicker(ticker: String) {
-        if (currentTicker == ticker && currentWebSocket != null) {
-            Log.d(TAG, "Already connected to $ticker")
-            return
-        }
-
-        disconnect()
-
-        currentTicker = ticker
-        val url = "$WS_BASE_URL?ticker=$ticker"
+    private fun connectForTickers(tickers: List<String>) {
+        val tickersParam = tickers.joinToString(",")
+        val url = "$WS_BASE_URL?tickers=$tickersParam"
+        val socketKey = tickers.sorted().joinToString(",")
 
         Log.d(TAG, "Connecting to $url")
 
-        currentClient = OkHttpClient.Builder()
+        val client = OkHttpClient.Builder()
             .pingInterval(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build()
@@ -88,27 +74,32 @@ class WebSocketManager {
             .url(url)
             .build()
 
-        currentWebSocket = currentClient?.newWebSocket(request, object : WebSocketListener() {
+        val webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d(TAG, "WebSocket opened for $ticker")
-                reconnectAttempts = 0
-                connectionCallbacks.forEach { it(true) }
+                Log.d(TAG, "WebSocket opened for ${tickers.joinToString()}")
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
-                    val json = JSONObject(text)
-                    val quote = QuoteUpdate(
-                        ticker = json.getString("ticker"),
-                        price = json.getDouble("price"),
-                        availableQuantity = if (json.has("availableQuantity")) json.getLong("availableQuantity") else null,
-                        updatedAt = json.getLong("updatedAt"),
-                        volatility = if (json.has("volatility")) json.getDouble("volatility") else null
-                    )
+                    Log.d(TAG, "Received: $text")
 
-                    synchronized(tickerCallbacks) {
-                        tickerCallbacks[quote.ticker]?.forEach { callback ->
-                            callback(quote)
+                    // Парсим как JSON массив
+                    val jsonArray = JSONArray(text)
+
+                    for (i in 0 until jsonArray.length()) {
+                        val json = jsonArray.getJSONObject(i)
+                        val quote = QuoteUpdate(
+                            ticker = json.getString("ticker"),
+                            price = json.getDouble("price"),
+                            availableQuantity = if (json.has("availableQuantity")) json.getLong("availableQuantity") else null,
+                            updatedAt = json.getLong("updatedAt"),
+                            volatility = if (json.has("volatility")) json.getDouble("volatility") else null
+                        )
+
+                        synchronized(tickerCallbacks) {
+                            tickerCallbacks[quote.ticker]?.forEach { callback ->
+                                callback(quote)
+                            }
                         }
                     }
                 } catch (e: Exception) {
@@ -116,52 +107,40 @@ class WebSocketManager {
                 }
             }
 
-            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                Log.d(TAG, "Received binary message")
-            }
-
-            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                Log.d(TAG, "Closing WebSocket: $code $reason")
-                webSocket.close(1000, null)
-            }
-
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                Log.d(TAG, "WebSocket closed for $ticker")
-                connectionCallbacks.forEach { it(false) }
-            }
-
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e(TAG, "WebSocket error for $ticker", t)
-                connectionCallbacks.forEach { it(false) }
+                Log.e(TAG, "WebSocket error", t)
+                activeSockets.remove(socketKey)
+                activeClients.remove(socketKey)
 
-                if (reconnectAttempts < maxReconnectAttempts && tickerCallbacks.containsKey(ticker)) {
-                    reconnectAttempts++
-                    val delayMs = (reconnectAttempts * 1000L).coerceAtMost(30000)
-                    Log.d(TAG, "Reconnecting in ${delayMs}ms (attempt $reconnectAttempts/$maxReconnectAttempts)")
-
-                    reconnectJob = scope.launch {
-                        delay(delayMs)
-                        connectForTicker(ticker)
+                reconnectJob = scope.launch {
+                    delay(5000)
+                    if (tickerCallbacks.keys.any { tickers.contains(it) }) {
+                        connectForTickers(tickers)
                     }
                 }
             }
-        })
-    }
 
-    private fun disconnect() {
-        reconnectJob?.cancel()
-        reconnectJob = null
-        currentWebSocket?.close(1000, "Normal closure")
-        currentWebSocket = null
-        currentClient?.dispatcher?.executorService?.shutdown()
-        currentClient = null
-        currentTicker = null
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                Log.d(TAG, "WebSocket closed: $code $reason")
+                activeSockets.remove(socketKey)
+                activeClients.remove(socketKey)
+            }
+        })
+
+        activeSockets[socketKey] = webSocket
+        activeClients[socketKey] = client
     }
 
     fun disconnectAll() {
+        reconnectJob?.cancel()
         synchronized(tickerCallbacks) {
             tickerCallbacks.clear()
         }
-        disconnect()
+        activeSockets.keys.toList().forEach { socketKey ->
+            activeSockets[socketKey]?.close(1000, "Normal closure")
+            activeClients[socketKey]?.dispatcher?.executorService?.shutdown()
+        }
+        activeSockets.clear()
+        activeClients.clear()
     }
 }

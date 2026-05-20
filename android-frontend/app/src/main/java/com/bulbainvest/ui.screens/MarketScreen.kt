@@ -13,24 +13,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.bulbainvest.repository.Repository
 import com.bulbainvest.viewmodels.MarketViewModel
-import com.bulbainvest.viewmodels.MarketViewModelFactory
-import com.bulbainvest.websocket.WebSocketManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MarketScreen(
-    repository: Repository,
-    webSocketManager: WebSocketManager,
+    marketViewModel: MarketViewModel,
     onTickerClick: (String, Double) -> Unit,
     onBack: () -> Unit
 ) {
-    val marketViewModel: MarketViewModel = viewModel(
-        factory = MarketViewModelFactory(repository, webSocketManager)
-    )
-
     val tickers by marketViewModel.tickers.collectAsState()
     val quotes by marketViewModel.quotes.collectAsState()
     val loading by marketViewModel.loading.collectAsState()

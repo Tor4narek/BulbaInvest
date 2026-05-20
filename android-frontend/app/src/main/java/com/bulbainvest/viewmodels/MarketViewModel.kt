@@ -3,6 +3,7 @@ package com.bulbainvest.viewmodels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import android.util.Log
 import com.bulbainvest.models.Quote
 import com.bulbainvest.repository.Repository
 import com.bulbainvest.websocket.QuoteUpdate
@@ -11,7 +12,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import android.util.Log
 
 class MarketViewModel(
     private val repository: Repository,
@@ -41,18 +41,20 @@ class MarketViewModel(
             _loading.value = true
             _error.value = null
             try {
-                val response = repository.getTickers()
-                response.onSuccess { tickerResponse ->
+                val result = repository.getTickers()
+                result.onSuccess { tickerResponse ->
                     _tickers.value = tickerResponse.tickers
                     tickerResponse.tickers.forEach { ticker ->
                         loadQuote(ticker)
-                        subscribeToTicker(ticker)
                     }
+                    subscribeToAllTickers(tickerResponse.tickers)
                 }.onFailure { error ->
                     _error.value = error.message
+                    Log.e("MarketViewModel", "Error loading tickers: ${error.message}")
                 }
             } catch (e: Exception) {
                 _error.value = e.message
+                Log.e("MarketViewModel", "Exception: ${e.message}")
             } finally {
                 _loading.value = false
             }
@@ -76,24 +78,46 @@ class MarketViewModel(
         }
     }
 
-    private fun subscribeToTicker(ticker: String) {
+    private fun subscribeToAllTickers(tickers: List<String>) {
         val callback: (QuoteUpdate) -> Unit = { update ->
             viewModelScope.launch {
-                val currentQuote = _quotes.value[ticker]
+                val currentQuote = _quotes.value[update.ticker]
                 if (currentQuote != null) {
                     val updatedQuote = currentQuote.copy(
                         midPrice = update.price,
                         timestamp = update.updatedAt
                     )
                     _quotes.value = _quotes.value.toMutableMap().apply {
-                        put(ticker, updatedQuote)
+                        put(update.ticker, updatedQuote)
                     }
                 }
             }
         }
+        webSocketManager.subscribeToQuotes(tickers, callback)
+    }
 
-        quoteCallbacks[ticker] = callback
-        webSocketManager.subscribeToQuote(ticker, callback)
+    fun subscribeToSingleTicker(ticker: String) {
+        if (!_tickers.value.contains(ticker)) {
+            loadQuote(ticker)
+        }
+        if (!quoteCallbacks.containsKey(ticker)) {
+            val callback: (QuoteUpdate) -> Unit = { update ->
+                viewModelScope.launch {
+                    val currentQuote = _quotes.value[update.ticker]
+                    if (currentQuote != null) {
+                        val updatedQuote = currentQuote.copy(
+                            midPrice = update.price,
+                            timestamp = update.updatedAt
+                        )
+                        _quotes.value = _quotes.value.toMutableMap().apply {
+                            put(update.ticker, updatedQuote)
+                        }
+                    }
+                }
+            }
+            quoteCallbacks[ticker] = callback
+            webSocketManager.subscribeToQuote(ticker, callback)
+        }
     }
 
     fun getQuote(ticker: String): Quote? = _quotes.value[ticker.uppercase()]

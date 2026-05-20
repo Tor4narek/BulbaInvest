@@ -6,15 +6,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bulbainvest.repository.Repository
+import com.bulbainvest.viewmodels.MarketViewModel
 import kotlinx.coroutines.launch
+import java.text.DecimalFormat
 
 @Composable
 fun TradeCompanyScreen(
     repository: Repository,
+    marketViewModel: MarketViewModel,
     ticker: String,
     onBack: () -> Unit,
     onTradeComplete: (String, Int, Double) -> Unit
@@ -23,48 +27,43 @@ fun TradeCompanyScreen(
     var isBuying by remember { mutableStateOf(true) }
     var isLoading by remember { mutableStateOf(false) }
     var resultMessage by remember { mutableStateOf<String?>(null) }
-    var currentPrice by remember { mutableStateOf("0") }
-    var isLoadingPrice by remember { mutableStateOf(true) }
     val coroutineScope = rememberCoroutineScope()
 
-    // Загрузка текущей цены из стакана (лучший ask)
-    LaunchedEffect(ticker) {
-        isLoadingPrice = true
-        try {
-            val orderBook = repository.getOrderBook(ticker)
-            val bestAsk = orderBook.getOrNull()?.orders?.minByOrNull { it.price.toDouble() }
-            if (bestAsk != null) {
-                currentPrice = bestAsk.price
-            }
-        } catch (e: Exception) {
-            currentPrice = when (ticker) {
-                "AAPL" -> "150.00"
-                "GOOGL" -> "2800.00"
-                else -> "100.00"
-            }
-        }
-        isLoadingPrice = false
-    }
+    // Получаем реальную цену из MarketViewModel
+    val quotes by marketViewModel.quotes.collectAsState()
+    val currentQuote = quotes[ticker.uppercase()]
+    val currentPrice = currentQuote?.midPrice ?: 0.0
+    val isLoadingPrice = currentPrice == 0.0
 
     val quantityInt = quantity.toIntOrNull() ?: 0
-    val priceDouble = currentPrice.toDoubleOrNull() ?: 0.0
-    val effectivePrice = if (isBuying) priceDouble else priceDouble * 0.98
+    val effectivePrice = if (isBuying) currentPrice else currentPrice * 0.98
     val totalAmount = quantityInt * effectivePrice
+
+    val decimalFormat = DecimalFormat("#,##0.00")
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
     ) {
+        // Заголовок
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "$ticker - ${if (isBuying) "Покупка" else "Продажа"}",
-                fontSize = 24.sp
-            )
+            Column {
+                Text(
+                    text = ticker.uppercase(),
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = if (isBuying) "Покупка у компании" else "Продажа компании",
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Button(onClick = onBack) {
                 Text("Назад")
             }
@@ -72,41 +71,79 @@ fun TradeCompanyScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // Переключатель Купить/Продать
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center
         ) {
-            FilterChip(
-                selected = isBuying,
+            Button(
                 onClick = { isBuying = true },
-                label = { Text("Купить") }
-            )
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isBuying) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (isBuying) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                ),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Купить", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
             Spacer(modifier = Modifier.width(16.dp))
-            FilterChip(
-                selected = !isBuying,
+            Button(
                 onClick = { isBuying = false },
-                label = { Text("Продать") }
-            )
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (!isBuying) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (!isBuying) MaterialTheme.colorScheme.onError
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                ),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Продать", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Текущая цена", fontSize = 14.sp)
+        // Карточка с ценой
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isBuying)
+                    MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.errorContainer
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = if (isBuying) "Цена покупки" else "Цена продажи",
+                    fontSize = 14.sp,
+                    color = if (isBuying)
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onErrorContainer
+                )
                 if (isLoadingPrice) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                    CircularProgressIndicator(modifier = Modifier.size(32.dp))
                 } else {
                     Text(
-                        text = "$effectivePrice BYN",
-                        fontSize = 28.sp
+                        text = "${decimalFormat.format(effectivePrice)} BYN",
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isBuying)
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.onErrorContainer
                     )
                 }
                 if (!isBuying) {
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Продажа по цене на 2% ниже рыночной",
+                        text = "⚠️ Продажа по цене на 2% ниже рыночной",
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.error
+                        color = MaterialTheme.colorScheme.onErrorContainer
                     )
                 }
             }
@@ -114,6 +151,7 @@ fun TradeCompanyScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // Поле ввода количества
         OutlinedTextField(
             value = quantity,
             onValueChange = {
@@ -122,36 +160,87 @@ fun TradeCompanyScreen(
                 }
             },
             label = { Text("Количество акций") },
+            placeholder = { Text("Введите количество") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            supportingText = {
+                if (quantity.isNotEmpty() && quantityInt == 0) {
+                    Text("Введите корректное количество", color = MaterialTheme.colorScheme.error)
+                }
+            }
         )
 
+        // Карточка с итогом (показываем всегда, но с заглушкой если 0)
         Spacer(modifier = Modifier.height(16.dp))
-
-        if (quantityInt > 0) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (quantityInt > 0)
+                    MaterialTheme.colorScheme.primaryContainer
+                else
+                    MaterialTheme.colorScheme.surfaceVariant
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Итого:", fontSize = 14.sp)
+                Column {
                     Text(
-                        text = "$totalAmount BYN",
-                        fontSize = 20.sp,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                        "Итого к оплате",
+                        fontSize = 12.sp,
+                        color = if (quantityInt > 0)
+                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Text(
+                        text = "${decimalFormat.format(totalAmount)} BYN",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (quantityInt > 0)
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (quantityInt > 0) {
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = if (isBuying)
+                            MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(4.dp)
+                    ) {
+                        Text(
+                            text = "${quantityInt} шт.",
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isBuying)
+                                MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onError
+                        )
+                    }
                 }
             }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // Кнопка действия
         Button(
             onClick = {
                 if (quantityInt <= 0) {
-                    resultMessage = "Введите количество"
+                    resultMessage = "Введите количество акций"
+                    return@Button
+                }
+                if (currentPrice <= 0) {
+                    resultMessage = "Цена не загружена, попробуйте позже"
                     return@Button
                 }
 
@@ -167,11 +256,17 @@ fun TradeCompanyScreen(
 
                     isLoading = false
                     result.onSuccess { trade ->
-                        val tradeType = if (isBuying) "покупка" else "продажа"
-                        resultMessage = "$tradeType ${trade.quantity} акций $ticker на сумму ${trade.totalAmount} BYN"
+                        val tradeType = if (isBuying) "Покупка" else "Продажа"
+                        resultMessage = "$tradeType ${trade.quantity} акций $ticker на сумму ${decimalFormat.format(trade.totalAmount.toDouble())} BYN"
                         onTradeComplete(tradeType, quantityInt, totalAmount)
                     }.onFailure { error ->
-                        resultMessage = "Ошибка: ${error.message}"
+                        resultMessage = when {
+                            error.message?.contains("INSUFFICIENT_STOCKS") == true ->
+                                "❌ Недостаточно акций у компании"
+                            error.message?.contains("INSUFFICIENT_FUNDS") == true ->
+                                "❌ Недостаточно средств на счете.\nПополните баланс в портфеле"
+                            else -> "❌ Ошибка: ${error.message}"
+                        }
                     }
                 }
             },
@@ -187,16 +282,21 @@ fun TradeCompanyScreen(
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp))
             } else {
-                Text(if (isBuying) "Купить" else "Продать")
+                Text(
+                    if (isBuying) "Купить" else "Продать",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
 
+        // Сообщение о результате
         if (resultMessage != null) {
             Spacer(modifier = Modifier.height(16.dp))
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (resultMessage!!.contains("успешно") || resultMessage!!.contains("покупка") || resultMessage!!.contains("продажа"))
+                    containerColor = if (resultMessage!!.contains("Покупка") || resultMessage!!.contains("Продажа"))
                         MaterialTheme.colorScheme.primaryContainer
                     else
                         MaterialTheme.colorScheme.errorContainer
@@ -204,7 +304,8 @@ fun TradeCompanyScreen(
             ) {
                 Text(
                     text = resultMessage!!,
-                    modifier = Modifier.padding(16.dp)
+                    modifier = Modifier.padding(16.dp),
+                    fontSize = 14.sp
                 )
             }
         }
