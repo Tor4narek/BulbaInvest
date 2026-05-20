@@ -65,8 +65,9 @@ fun Application.gatewayModule(
     install(CallLogging)
     install(CORS) {
         anyHost()
-        allowHeader(io.ktor.http.HttpHeaders.ContentType)
-        allowHeader(io.ktor.http.HttpHeaders.Authorization)
+        allowCredentials = true
+        allowNonSimpleContentTypes = true
+        allowHeaders { true }
         io.ktor.http.HttpMethod.DefaultMethods.forEach { allowMethod(it) }
     }
 
