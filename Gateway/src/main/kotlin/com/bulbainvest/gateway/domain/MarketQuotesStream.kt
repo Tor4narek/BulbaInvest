@@ -19,7 +19,7 @@ data class QuotesUpdatedEvent(
 )
 
 interface MarketQuotesStream {
-    val updates: SharedFlow<StockQuote>
+    val updates: SharedFlow<QuotesUpdatedEvent>
 
     suspend fun currentQuote(ticker: String): StockQuote?
 

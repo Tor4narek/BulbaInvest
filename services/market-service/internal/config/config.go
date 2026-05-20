@@ -11,10 +11,24 @@ type Config struct {
 	RedisAddr          string
 	RedisPassword      string
 	RedisDB            int
+	InventoryDB        InventoryDBConfig
 	MarketDriverConfig string
 	TickInterval       time.Duration
 	ConsumerGroup      string
 	ConsumerName       string
+}
+
+type InventoryDBConfig struct {
+	Host     string
+	Port     int
+	Name     string
+	User     string
+	Password string
+	SSLMode  string
+}
+
+func (c InventoryDBConfig) Enabled() bool {
+	return c.Host != "" && c.Name != "" && c.User != ""
 }
 
 func Load() Config {
@@ -23,8 +37,16 @@ func Load() Config {
 		RedisAddr:          envString("REDIS_ADDR", "localhost:6379"),
 		RedisPassword:      envString("REDIS_PASSWORD", ""),
 		RedisDB:            envInt("REDIS_DB", 0),
+		InventoryDB: InventoryDBConfig{
+			Host:     envString("MARKET_DB_HOST", ""),
+			Port:     envInt("MARKET_DB_PORT", 5432),
+			Name:     envString("MARKET_DB_NAME", ""),
+			User:     envString("MARKET_DB_USER", ""),
+			Password: envString("MARKET_DB_PASSWORD", ""),
+			SSLMode:  envString("MARKET_DB_SSLMODE", "disable"),
+		},
 		MarketDriverConfig: envString("MARKET_DRIVER_CONFIG", ""),
-		TickInterval:       envDuration("MARKET_TICK_INTERVAL", 10*time.Second),
+		TickInterval:       envDuration("MARKET_TICK_INTERVAL", 500*time.Millisecond),
 		ConsumerGroup:      envString("MARKET_CONSUMER_GROUP", "market-service"),
 		ConsumerName:       envString("MARKET_CONSUMER_NAME", "market-service-1"),
 	}

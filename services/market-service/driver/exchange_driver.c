@@ -295,6 +295,23 @@ int exchange_apply_sell(const char* ticker, uint64_t quantity) {
     return 0;
 }
 
+int exchange_set_available_quantity(const char* ticker, uint64_t quantity) {
+    int idx;
+
+    if (!g_initialized) {
+        return -1;
+    }
+
+    idx = find_quote_index(ticker);
+    if (idx < 0) {
+        return -2;
+    }
+
+    g_quotes[idx].available_quantity = quantity;
+    g_quotes[idx].updated_at_unix = (int64_t)time(NULL);
+    return 0;
+}
+
 void exchange_free_snapshot(MarketSnapshot* snapshot) {
     if (snapshot == NULL) {
         return;

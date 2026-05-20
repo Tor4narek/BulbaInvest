@@ -70,12 +70,13 @@ class QuoteRepository(private val conn: Connection) {
 
     fun getCandles(ticker: String, granularity: Granularity): List<Candle> {
         val db = AppConfig.clickhouse.database
-        val intervalFn = granularity.clickhouseInterval
-        val lookbackHours = granularity.lookbackHours
+        val bucketExpression = bucketExpression(granularity)
+        val lookbackValue = granularity.lookbackValue
+        val lookbackUnit = granularity.lookbackUnit
 
         val sql = """
             SELECT
-                toString(${intervalFn}(ts)) AS bucket,
+                toString($bucketExpression)   AS bucket,
                 argMin(price, ts)            AS open,
                 max(price)                   AS high,
                 min(price)                   AS low,
@@ -83,7 +84,7 @@ class QuoteRepository(private val conn: Connection) {
                 count()                      AS volume
             FROM $db.quotes
             WHERE ticker = ?
-              AND ts >= now() - INTERVAL $lookbackHours HOUR
+              AND ts >= now() - INTERVAL $lookbackValue $lookbackUnit
             GROUP BY bucket
             ORDER BY bucket ASC
         """.trimIndent()
@@ -105,6 +106,13 @@ class QuoteRepository(private val conn: Connection) {
                 }
             }
         }
+    }
+
+    private fun bucketExpression(granularity: Granularity): String = when (granularity) {
+        // ClickHouse 24.3 rejects toStartOfSecond(DateTime), so use a generic interval
+        // expression that works with the current ts column type.
+        Granularity.TEN_MINUTES -> "toStartOfInterval(ts, INTERVAL 1 SECOND)"
+        else -> "${granularity.clickhouseInterval}(ts)"
     }
 
     fun getLatestPrice(ticker: String): LatestPriceResponse? {

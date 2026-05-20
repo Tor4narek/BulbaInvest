@@ -31,7 +31,7 @@ data class WalletDto(
 )
 
 @Serializable
-data class CreateWalletRequest(val currency: String? = null)
+data class DepositWalletRequest(val amount: String)
 
 @Serializable
 data class PortfolioPositionDto(

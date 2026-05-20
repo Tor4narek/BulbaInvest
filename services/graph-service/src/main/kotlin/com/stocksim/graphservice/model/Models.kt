@@ -63,16 +63,48 @@ data class Candle(
 /**
  * Granularity of candles requested by the client.
  */
-enum class Granularity(val clickhouseInterval: String, val lookbackHours: Long) {
-    HOUR(clickhouseInterval = "toStartOfMinute", lookbackHours = 1),
-    DAY(clickhouseInterval = "toStartOfFiveMinutes", lookbackHours = 24),
-    WEEK(clickhouseInterval = "toStartOfHour", lookbackHours = 168),
-    MONTH(clickhouseInterval = "toStartOfDay", lookbackHours = 720);
+enum class Granularity(
+    val apiValue: String,
+    val clickhouseInterval: String,
+    val lookbackValue: Int,
+    val lookbackUnit: String,
+) {
+    TEN_MINUTES(
+        apiValue = "10m",
+        clickhouseInterval = "toStartOfSecond",
+        lookbackValue = 10,
+        lookbackUnit = "MINUTE",
+    ),
+    HOUR(
+        apiValue = "hour",
+        clickhouseInterval = "toStartOfMinute",
+        lookbackValue = 1,
+        lookbackUnit = "HOUR",
+    ),
+    DAY(
+        apiValue = "day",
+        clickhouseInterval = "toStartOfFiveMinutes",
+        lookbackValue = 24,
+        lookbackUnit = "HOUR",
+    ),
+    WEEK(
+        apiValue = "week",
+        clickhouseInterval = "toStartOfHour",
+        lookbackValue = 7,
+        lookbackUnit = "DAY",
+    ),
+    MONTH(
+        apiValue = "month",
+        clickhouseInterval = "toStartOfDay",
+        lookbackValue = 30,
+        lookbackUnit = "DAY",
+    );
 
     companion object {
         fun from(value: String): Granularity =
-            entries.firstOrNull { it.name.equals(value, ignoreCase = true) }
-                ?: throw IllegalArgumentException("Unknown granularity: '$value'. Allowed: hour, day, week, month")
+            entries.firstOrNull {
+                it.apiValue.equals(value, ignoreCase = true) || it.name.equals(value, ignoreCase = true)
+            } ?: throw IllegalArgumentException("Unknown granularity: '$value'. Allowed: 10m, hour, day, week, month")
     }
 }
 
