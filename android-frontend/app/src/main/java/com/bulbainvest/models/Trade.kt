@@ -1,3 +1,4 @@
+// app/src/main/java/com/bulbainvest/models/Trade.kt
 package com.bulbainvest.models
 
 data class Trade(

@@ -1,3 +1,4 @@
+// app/src/main/java/com/bulbainvest/repository/Repository.kt
 package com.bulbainvest.repository
 
 import com.bulbainvest.models.*
@@ -72,10 +73,48 @@ class Repository(private val apiService: ApiService) {
         }
     }
 
-    // Order book
+    // Order book (P2P)
     suspend fun getOrderBook(ticker: String): Result<OrderBookResponse> = withContext(Dispatchers.IO) {
         try {
-            Result.success(apiService.getOrderBook(ticker))
+            val response = apiService.getOrderBook(ticker)
+            Result.success(response)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // Market Data - НОВЫЕ МЕТОДЫ
+    suspend fun getTickers(): Result<TickerListResponse> = withContext(Dispatchers.IO) {
+        try {
+            val response = apiService.getTickers()
+            Result.success(response)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getQuoteLatest(ticker: String): Result<Quote> = withContext(Dispatchers.IO) {
+        try {
+            val response = apiService.getQuoteLatest(ticker)
+            Result.success(response)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getQuoteStats(ticker: String, granularity: String = "day"): Result<QuoteStats> = withContext(Dispatchers.IO) {
+        try {
+            val response = apiService.getQuoteStats(ticker, granularity)
+            Result.success(response)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getMarketOrderBook(ticker: String): Result<OrderBook> = withContext(Dispatchers.IO) {
+        try {
+            val response = apiService.getMarketOrderBook(ticker)
+            Result.success(response)
         } catch (e: Exception) {
             Result.failure(e)
         }

@@ -13,26 +13,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.bulbainvest.network.RetrofitClient
 import com.bulbainvest.repository.Repository
-import com.bulbainvest.ui.screens.AuthScreen
-import com.bulbainvest.ui.screens.PortfolioScreen
-import com.bulbainvest.ui.screens.TradeCompanyScreen
-import com.bulbainvest.ui.screens.TradeP2PScreen
+import com.bulbainvest.ui.screens.*
 import com.bulbainvest.ui.theme.BulbaInvestTheme
 import com.bulbainvest.utils.TokenManager
+import com.bulbainvest.websocket.WebSocketManager
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var tokenManager: TokenManager
     private lateinit var repository: Repository
+    private lateinit var webSocketManager: WebSocketManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         tokenManager = TokenManager(this)
 
-        // Создаём API клиент и репозиторий
         val apiService = RetrofitClient.create(tokenManager)
         repository = Repository(apiService)
+        webSocketManager = WebSocketManager()
 
         setContent {
             BulbaInvestTheme {
@@ -52,6 +51,7 @@ class MainActivity : ComponentActivity() {
         var isLoading by remember { mutableStateOf(true) }
         var currentScreen by remember { mutableStateOf(Screen.Portfolio) }
         var selectedTicker by remember { mutableStateOf("AAPL") }
+        var selectedPrice by remember { mutableStateOf(0.0) } // Добавить переменную для цены
         val coroutineScope = rememberCoroutineScope()
 
         LaunchedEffect(Unit) {
@@ -82,21 +82,27 @@ class MainActivity : ComponentActivity() {
                     }
                 )
             }
-            currentScreen == Screen.Portfolio -> {
-                PortfolioScreen(
+
+            currentScreen == Screen.Market -> {
+                MarketScreen(
                     repository = repository,
-                    onLogout = {
-                        coroutineScope.launch {
-                            tokenManager.clearAuthToken()
-                            isLoggedIn = false
-                        }
-                    },
-                    onTradeClick = { ticker ->
+                    webSocketManager = webSocketManager,
+                    onTickerClick = { ticker, price ->
                         selectedTicker = ticker
-                        currentScreen = Screen.TradeCompany
+                        currentScreen = Screen.StockDetails
                     },
-                    onP2PClick = {
-                        currentScreen = Screen.TradeP2P
+                    onBack = { currentScreen = Screen.Portfolio }
+                )
+            }
+
+            currentScreen == Screen.StockDetails -> {
+                StockDetailsScreen(
+                    repository = repository,
+                    webSocketManager = webSocketManager,
+                    ticker = selectedTicker,
+                    onBack = { currentScreen = Screen.Market },
+                    onTradeClick = {
+                        currentScreen = Screen.TradeCompany
                     }
                 )
             }
@@ -104,7 +110,7 @@ class MainActivity : ComponentActivity() {
                 TradeCompanyScreen(
                     repository = repository,
                     ticker = selectedTicker,
-                    onBack = { currentScreen = Screen.Portfolio },
+                    onBack = { currentScreen = Screen.StockDetails },
                     onTradeComplete = { _, _, _ ->
                         currentScreen = Screen.Portfolio
                     }
@@ -122,6 +128,8 @@ class MainActivity : ComponentActivity() {
 
 enum class Screen {
     Portfolio,
+    Market,
+    StockDetails,
     TradeCompany,
     TradeP2P
 }

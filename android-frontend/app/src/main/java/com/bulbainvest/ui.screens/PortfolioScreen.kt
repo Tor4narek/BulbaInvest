@@ -18,6 +18,7 @@ fun PortfolioScreen(
     repository: Repository,
     onLogout: () -> Unit,
     onTradeClick: (String) -> Unit,
+    onMarketClick: () -> Unit,  // Добавить
     onP2PClick: () -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -54,6 +55,10 @@ fun PortfolioScreen(
         ) {
             Text("Портфель", fontSize = MaterialTheme.typography.headlineMedium.fontSize)
             Row {
+                Button(onClick = onMarketClick) {  // Новая кнопка
+                    Text("Рынок")
+                }
+                Spacer(modifier = Modifier.width(8.dp))
                 Button(onClick = onP2PClick) {
                     Text("P2P")
                 }

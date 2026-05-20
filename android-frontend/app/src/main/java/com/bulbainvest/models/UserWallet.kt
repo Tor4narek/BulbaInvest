@@ -1,3 +1,4 @@
+// app/src/main/java/com/bulbainvest/models/UserWallet.kt
 package com.bulbainvest.models
 
 data class UserWallet(

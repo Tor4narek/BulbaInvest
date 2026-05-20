@@ -1,3 +1,4 @@
+// app/src/main/java/com/bulbainvest/network/ApiService.kt
 package com.bulbainvest.network
 
 import com.bulbainvest.models.*
@@ -46,9 +47,26 @@ interface ApiService {
     @POST("api/trades/company/sell")
     suspend fun sellToCompany(@Body request: CompanyTradeRequest): Trade
 
-    // Order book
+    // Order book (P2P) - существующий метод
     @GET("api/order-book/{ticker}")
     suspend fun getOrderBook(@Path("ticker") ticker: String): OrderBookResponse
+
+    // Market Data - НОВЫЕ МЕТОДЫ (с другими именами)
+    @GET("api/tickers")
+    suspend fun getTickers(): TickerListResponse
+
+    @GET("api/quotes/{ticker}/latest")
+    suspend fun getQuoteLatest(@Path("ticker") ticker: String): Quote
+
+    @GET("api/quotes/{ticker}/stats")
+    suspend fun getQuoteStats(
+        @Path("ticker") ticker: String,
+        @Query("granularity") granularity: String = "day"
+    ): QuoteStats
+
+    // Market Order Book - переименованный метод, чтобы не конфликтовать
+    @GET("api/order-book/{ticker}")
+    suspend fun getMarketOrderBook(@Path("ticker") ticker: String): OrderBook
 
     // Orders
     @POST("api/orders/sell")
@@ -78,34 +96,3 @@ interface ApiService {
         @Query("to") to: String? = null
     ): List<Trade>
 }
-
-// Request models
-data class CompanyTradeRequest(
-    val ticker: String,
-    val quantity: String,
-    val walletId: String? = null
-)
-
-data class CreateSellOrderRequest(
-    val ticker: String,
-    val quantity: String,
-    val price: String
-)
-
-data class BuyFromOrderBookRequest(
-    val ticker: String,
-    val quantity: String,
-    val maxPrice: String,
-    val walletId: String? = null
-)
-
-data class BuySpecificOrderRequest(
-    val quantity: String,
-    val maxPrice: String,
-    val walletId: String? = null
-)
-
-data class OrderBookResponse(
-    val ticker: String,
-    val orders: List<SellOrder>
-)

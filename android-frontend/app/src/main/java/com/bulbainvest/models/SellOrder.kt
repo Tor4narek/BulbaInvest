@@ -1,3 +1,4 @@
+// app/src/main/java/com/bulbainvest/models/SellOrder.kt
 package com.bulbainvest.models
 
 data class SellOrder(
