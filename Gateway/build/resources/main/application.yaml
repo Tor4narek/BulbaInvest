@@ -1,0 +1,25 @@
+ktor:
+  deployment:
+    port: 8050
+  application:
+    modules:
+      - com.bulbainvest.gateway.ApplicationKt.module
+
+services:
+  domain:
+    baseUrl: "http://localhost:8040"
+  graph:
+    baseUrl: "http://localhost:8083"
+
+brokerRedis:
+  host: localhost
+  port: 6379
+  password: ""
+  db: 0
+  quotesChannel: "market.quotes.updated"
+  stockKeyPrefix: "market:stocks:"
+
+httpClient:
+  requestTimeoutMillis: 5000
+  connectTimeoutMillis: 2000
+  socketTimeoutMillis: 5000
