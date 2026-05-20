@@ -11,6 +11,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.bulbainvest.network.RetrofitClient
+import com.bulbainvest.repository.Repository
 import com.bulbainvest.ui.screens.AuthScreen
 import com.bulbainvest.ui.screens.PortfolioScreen
 import com.bulbainvest.ui.screens.TradeCompanyScreen
@@ -22,10 +24,15 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
     private lateinit var tokenManager: TokenManager
+    private lateinit var repository: Repository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         tokenManager = TokenManager(this)
+
+        // Создаём API клиент и репозиторий
+        val apiService = RetrofitClient.create(tokenManager)
+        repository = Repository(apiService)
 
         setContent {
             BulbaInvestTheme {
@@ -47,7 +54,6 @@ class MainActivity : ComponentActivity() {
         var selectedTicker by remember { mutableStateOf("AAPL") }
         val coroutineScope = rememberCoroutineScope()
 
-        // Проверяем сохранённый токен при запуске
         LaunchedEffect(Unit) {
             val token = tokenManager.getToken()
             isLoggedIn = token != null
@@ -55,7 +61,6 @@ class MainActivity : ComponentActivity() {
         }
 
         if (isLoading) {
-            // Экран загрузки
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -68,9 +73,10 @@ class MainActivity : ComponentActivity() {
         when {
             !isLoggedIn -> {
                 AuthScreen(
-                    onLoginSuccess = { token, userId ->
+                    repository = repository,
+                    onLoginSuccess = { token ->
                         coroutineScope.launch {
-                            tokenManager.saveAuthToken(token, userId)
+                            tokenManager.saveAuthToken(token)
                             isLoggedIn = true
                         }
                     }
@@ -78,6 +84,7 @@ class MainActivity : ComponentActivity() {
             }
             currentScreen == Screen.Portfolio -> {
                 PortfolioScreen(
+                    repository = repository,
                     onLogout = {
                         coroutineScope.launch {
                             tokenManager.clearAuthToken()
@@ -95,20 +102,18 @@ class MainActivity : ComponentActivity() {
             }
             currentScreen == Screen.TradeCompany -> {
                 TradeCompanyScreen(
+                    repository = repository,
                     ticker = selectedTicker,
                     onBack = { currentScreen = Screen.Portfolio },
-                    onTradeComplete = { type, quantity, total ->
-                        // TODO: обновить портфель
+                    onTradeComplete = { _, _, _ ->
                         currentScreen = Screen.Portfolio
                     }
                 )
             }
             currentScreen == Screen.TradeP2P -> {
                 TradeP2PScreen(
-                    onBack = { currentScreen = Screen.Portfolio },
-                    onOrderExecuted = {
-                        println("Order executed in P2P")
-                    }
+                    repository = repository,
+                    onBack = { currentScreen = Screen.Portfolio }
                 )
             }
         }

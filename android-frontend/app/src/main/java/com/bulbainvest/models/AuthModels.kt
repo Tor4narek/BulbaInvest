@@ -10,6 +10,5 @@ data class ConfirmRequest(
 )
 
 data class AuthResponse(
-    val accessToken: String,
-    val userId: String
+    val token: String  // ← только token, без userId
 )

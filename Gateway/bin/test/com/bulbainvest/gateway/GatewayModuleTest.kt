@@ -1,0 +1,241 @@
+package com.bulbainvest.gateway
+
+import com.bulbainvest.gateway.application.ProxyUseCase
+import com.bulbainvest.gateway.application.QuoteSubscriptionUseCase
+import com.bulbainvest.gateway.domain.BadGatewayException
+import com.bulbainvest.gateway.domain.DownstreamProxyClient
+import com.bulbainvest.gateway.domain.DownstreamService
+import com.bulbainvest.gateway.domain.DownstreamServiceRegistry
+import com.bulbainvest.gateway.domain.DownstreamTarget
+import com.bulbainvest.gateway.domain.GatewayTimeoutException
+import com.bulbainvest.gateway.domain.MarketQuotesStream
+import com.bulbainvest.gateway.domain.ProxyRequest
+import com.bulbainvest.gateway.domain.ProxyResponse
+import com.bulbainvest.gateway.domain.StockQuote
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.client.plugins.websocket.WebSockets
+import io.ktor.client.plugins.websocket.webSocketSession
+import io.ktor.http.ContentType
+import io.ktor.http.Headers
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
+import io.ktor.server.testing.testApplication
+import io.ktor.websocket.Frame
+import io.ktor.websocket.readText
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+class GatewayModuleTest {
+    @Test
+    fun `health endpoint is local`() = testApplication {
+        application {
+            gatewayModule(
+                GatewayDependencies(
+                    proxyUseCase = ProxyUseCase(FakeRegistry(), RecordingProxyClient()),
+                    quoteSubscriptionUseCase = QuoteSubscriptionUseCase(FakeMarketQuotesStream()),
+                )
+            )
+        }
+
+        val response = client.get("/health")
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals("""{"status":"ok"}""", response.bodyAsText())
+    }
+
+    @Test
+    fun `gateway proxies request method path query body and auth header`() = testApplication {
+        val proxyClient = RecordingProxyClient()
+        application {
+            gatewayModule(
+                GatewayDependencies(
+                    proxyUseCase = ProxyUseCase(FakeRegistry(), proxyClient),
+                    quoteSubscriptionUseCase = QuoteSubscriptionUseCase(FakeMarketQuotesStream()),
+                )
+            )
+        }
+
+        val response = client.post("/api/orders/buy?ticker=AAPL&mode=fast") {
+            header(HttpHeaders.Authorization, "Bearer test-token")
+            contentType(ContentType.Application.Json)
+            setBody("""{"ticker":"AAPL","quantity":"2","maxPrice":"100"}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals("""{"status":"executed"}""", response.bodyAsText())
+
+        val captured = proxyClient.captured.single()
+        assertEquals("/api/orders/buy", captured.encodedPath)
+        assertEquals("ticker=AAPL&mode=fast", captured.queryString)
+        assertEquals("Bearer test-token", captured.headers[HttpHeaders.Authorization])
+        assertEquals("""{"ticker":"AAPL","quantity":"2","maxPrice":"100"}""", captured.body.decodeToString())
+        assertEquals("http://domain-service:8040", captured.target.baseUrl)
+    }
+
+    @Test
+    fun `gateway preserves downstream status and content type`() = testApplication {
+        application {
+            gatewayModule(
+                GatewayDependencies(
+                    proxyUseCase = ProxyUseCase(FakeRegistry(), RecordingProxyClient(statusCode = 201)),
+                    quoteSubscriptionUseCase = QuoteSubscriptionUseCase(FakeMarketQuotesStream()),
+                )
+            )
+        }
+
+        val response = client.post("/api/wallets") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"currency":"USD"}""")
+        }
+
+        assertEquals(HttpStatusCode.Created, response.status)
+        assertEquals(ContentType.Application.Json.toString(), response.headers[HttpHeaders.ContentType])
+    }
+
+    @Test
+    fun `gateway maps downstream timeout to 504`() = testApplication {
+        application {
+            gatewayModule(
+                GatewayDependencies(
+                    proxyUseCase = ProxyUseCase(FakeRegistry(), ThrowingProxyClient(GatewayTimeoutException("timeout"))),
+                    quoteSubscriptionUseCase = QuoteSubscriptionUseCase(FakeMarketQuotesStream()),
+                )
+            )
+        }
+
+        val response = client.get("/api/orders/my")
+
+        assertEquals(HttpStatusCode.GatewayTimeout, response.status)
+        assertTrue(response.bodyAsText().contains("gateway_timeout"))
+    }
+
+    @Test
+    fun `gateway maps downstream connectivity failures to 502`() = testApplication {
+        application {
+            gatewayModule(
+                GatewayDependencies(
+                    proxyUseCase = ProxyUseCase(FakeRegistry(), ThrowingProxyClient(BadGatewayException("downstream unavailable"))),
+                    quoteSubscriptionUseCase = QuoteSubscriptionUseCase(FakeMarketQuotesStream()),
+                )
+            )
+        }
+
+        val response = client.get("/api/trades")
+
+        assertEquals(HttpStatusCode.BadGateway, response.status)
+        assertTrue(response.bodyAsText().contains("bad_gateway"))
+    }
+
+    @Test
+    fun `websocket sends current quote and later matching updates only`() = testApplication {
+        val marketQuotesStream = FakeMarketQuotesStream(
+            currentQuotes = mapOf(
+                "AAPL" to StockQuote(
+                    ticker = "AAPL",
+                    price = 192.45,
+                    availableQuantity = 10_000,
+                    updatedAt = 1710000000,
+                )
+            )
+        )
+
+        application {
+            gatewayModule(
+                GatewayDependencies(
+                    proxyUseCase = ProxyUseCase(FakeRegistry(), RecordingProxyClient()),
+                    quoteSubscriptionUseCase = QuoteSubscriptionUseCase(marketQuotesStream),
+                )
+            )
+        }
+
+        val wsClient = createClient {
+            install(WebSockets)
+        }
+
+        val session = wsClient.webSocketSession("/ws/quotes?ticker=AAPL")
+
+        val initialFrame = session.incoming.receive() as Frame.Text
+        assertTrue(initialFrame.readText().contains(""""ticker":"AAPL""""))
+
+        marketQuotesStream.emit(
+            StockQuote(
+                ticker = "MSFT",
+                price = 401.11,
+                availableQuantity = 2_000,
+                updatedAt = 1710000001,
+            )
+        )
+        marketQuotesStream.emit(
+            StockQuote(
+                ticker = "AAPL",
+                price = 193.10,
+                availableQuantity = 9_900,
+                updatedAt = 1710000002,
+            )
+        )
+
+        val nextFrame = session.incoming.receive() as Frame.Text
+        assertTrue(nextFrame.readText().contains(""""price":193.1"""))
+    }
+
+    private class FakeRegistry : DownstreamServiceRegistry {
+        override fun targetFor(service: DownstreamService): DownstreamTarget =
+            DownstreamTarget(service, "http://domain-service:8040")
+    }
+
+    private class FakeMarketQuotesStream(
+        private val currentQuotes: Map<String, StockQuote> = emptyMap(),
+    ) : MarketQuotesStream {
+        private val updatesFlow = MutableSharedFlow<StockQuote>(extraBufferCapacity = 16)
+
+        override val updates: SharedFlow<StockQuote> = updatesFlow.asSharedFlow()
+
+        override suspend fun currentQuote(ticker: String): StockQuote? = currentQuotes[ticker]
+
+        override fun start() = Unit
+
+        override fun stop() = Unit
+
+        fun emit(quote: StockQuote) {
+            updatesFlow.tryEmit(quote)
+        }
+    }
+
+    private class RecordingProxyClient(
+        private val statusCode: Int = 200,
+    ) : DownstreamProxyClient {
+        val captured = mutableListOf<ProxyRequest>()
+
+        override suspend fun execute(request: ProxyRequest): ProxyResponse {
+            captured += request
+            return ProxyResponse(
+                statusCode = statusCode,
+                headers = Headers.build {
+                    append(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                },
+                body = if (statusCode == 201) {
+                    """{"id":"wallet-1"}""".encodeToByteArray()
+                } else {
+                    """{"status":"executed"}""".encodeToByteArray()
+                },
+            )
+        }
+    }
+
+    private class ThrowingProxyClient(
+        private val exception: RuntimeException,
+    ) : DownstreamProxyClient {
+        override suspend fun execute(request: ProxyRequest): ProxyResponse {
+            throw exception
+        }
+    }
+}

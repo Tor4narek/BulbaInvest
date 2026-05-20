@@ -24,10 +24,9 @@ class TokenManager(private val context: Context) {
             preferences[TOKEN_KEY]
         }
 
-    suspend fun saveAuthToken(token: String, userId: String) {
+    suspend fun saveAuthToken(token: String) {
         context.dataStore.edit { preferences ->
             preferences[TOKEN_KEY] = token
-            preferences[USER_ID_KEY] = userId
         }
     }
 

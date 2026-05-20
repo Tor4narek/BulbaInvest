@@ -10,21 +10,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.bulbainvest.models.SellOrder
+import com.bulbainvest.repository.Repository
 import kotlinx.coroutines.launch
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropUp
-
-// Модель ордера
-data class SellOrder(
-    val id: String,
-    val sellerName: String,
-    val quantity: Int,
-    val price: Double,
-    val createdAt: String
-)
+import androidx.compose.foundation.text.KeyboardOptions
 
 @Composable
 fun TradeP2PScreen(
+    repository: Repository,
     onBack: () -> Unit,
     onOrderExecuted: () -> Unit = {}
 ) {
@@ -34,17 +30,26 @@ fun TradeP2PScreen(
     var price by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+    var openOrders by remember { mutableStateOf<List<SellOrder>>(emptyList()) }
+    var isLoadingOrders by remember { mutableStateOf(true) }
     val coroutineScope = rememberCoroutineScope()
 
-    // Моковые ордера
-    var openOrders by remember {
-        mutableStateOf(
-            listOf(
-                SellOrder("1", "user123", 10, 155.0, "2024-01-15 10:30"),
-                SellOrder("2", "investor42", 5, 152.0, "2024-01-15 11:00"),
-                SellOrder("3", "trader99", 20, 158.0, "2024-01-15 12:15")
-            )
-        )
+    // Загрузка ордеров
+    fun loadOrders() {
+        coroutineScope.launch {
+            isLoadingOrders = true
+            val result = repository.getOrderBook(ticker)
+            result.onSuccess { orderBook ->
+                openOrders = orderBook.orders.filter { it.status == "OPEN" }
+            }.onFailure { error ->
+                message = "Ошибка загрузки: ${error.message}"
+            }
+            isLoadingOrders = false
+        }
+    }
+
+    LaunchedEffect(ticker) {
+        loadOrders()
     }
 
     Column(
@@ -52,7 +57,6 @@ fun TradeP2PScreen(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        // Заголовок
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -62,10 +66,7 @@ fun TradeP2PScreen(
             Row {
                 IconButton(onClick = { showCreateForm = !showCreateForm }) {
                     Icon(
-                        if (showCreateForm)
-                            androidx.compose.material.icons.Icons.Default.ArrowDropUp
-                        else
-                            androidx.compose.material.icons.Icons.Default.Add,
+                        if (showCreateForm) Icons.Default.ArrowDropUp else Icons.Default.Add,
                         contentDescription = if (showCreateForm) "Скрыть" else "Создать"
                     )
                 }
@@ -78,20 +79,21 @@ fun TradeP2PScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         // Выбор тикера
+        val tickers = listOf("AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA", "META", "NFLX", "JPM", "DIS")
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            FilterChip(
-                selected = ticker == "AAPL",
-                onClick = { ticker = "AAPL" },
-                label = { Text("AAPL") }
-            )
-            FilterChip(
-                selected = ticker == "GOOGL",
-                onClick = { ticker = "GOOGL" },
-                label = { Text("GOOGL") }
-            )
+            tickers.take(5).forEach { t ->
+                FilterChip(
+                    selected = ticker == t,
+                    onClick = {
+                        ticker = t
+                        loadOrders()
+                    },
+                    label = { Text(t) }
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -116,7 +118,7 @@ fun TradeP2PScreen(
                             }
                         },
                         label = { Text("Количество") },
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -126,7 +128,7 @@ fun TradeP2PScreen(
                         value = price,
                         onValueChange = { price = it },
                         label = { Text("Цена за акцию (BYN)") },
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -148,21 +150,17 @@ fun TradeP2PScreen(
 
                             isLoading = true
                             coroutineScope.launch {
-                                kotlinx.coroutines.delay(500)
-                                // TODO: POST /api/orders/sell
-                                val newOrder = SellOrder(
-                                    id = System.currentTimeMillis().toString(),
-                                    sellerName = "Я",
-                                    quantity = qty,
-                                    price = prc,
-                                    createdAt = "только что"
-                                )
-                                openOrders = listOf(newOrder) + openOrders
+                                val result = repository.createSellOrder(ticker, qty.toString(), prc.toString())
                                 isLoading = false
-                                message = "Ордер создан: продажа $qty $ticker по $prc BYN"
-                                quantity = ""
-                                price = ""
-                                showCreateForm = false
+                                result.onSuccess {
+                                    message = "Ордер создан: продажа $qty $ticker по $prc BYN"
+                                    quantity = ""
+                                    price = ""
+                                    showCreateForm = false
+                                    loadOrders()
+                                }.onFailure { error ->
+                                    message = "Ошибка: ${error.message}"
+                                }
                             }
                         },
                         enabled = !isLoading,
@@ -184,7 +182,7 @@ fun TradeP2PScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (message!!.contains("успешно") || message!!.contains("создан"))
+                    containerColor = if (message!!.contains("создан") || message!!.contains("купили"))
                         MaterialTheme.colorScheme.primaryContainer
                     else
                         MaterialTheme.colorScheme.errorContainer
@@ -196,53 +194,77 @@ fun TradeP2PScreen(
         }
 
         // Список ордеров
-        Text("Активные ордера на продажу $ticker", fontSize = 18.sp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Активные ордера на продажу $ticker", fontSize = 18.sp)
+            IconButton(onClick = { loadOrders() }) {
+                Icon(Icons.Default.Add, contentDescription = "Обновить")
+            }
+        }
         Spacer(modifier = Modifier.height(8.dp))
 
-        if (openOrders.isEmpty()) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Text("Нет активных ордеров", modifier = Modifier.padding(16.dp))
+        when {
+            isLoadingOrders -> {
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
             }
-        } else {
-            LazyColumn {
-                items(openOrders) { order ->
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                    ) {
-                        Row(
+            openOrders.isEmpty() -> {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Text("Нет активных ордеров", modifier = Modifier.padding(16.dp))
+                }
+            }
+            else -> {
+                LazyColumn {
+                    items(openOrders) { order ->
+                        Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(vertical = 4.dp)
                         ) {
-                            Column {
-                                Text("📊 ${order.quantity} шт.", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                                Text("💰 ${order.price} BYN за шт.")
-                                Text("👤 ${order.sellerName}", fontSize = 12.sp)
-                                Text("🕐 ${order.createdAt}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-
-                            Button(
-                                onClick = {
-                                    isLoading = true
-                                    coroutineScope.launch {
-                                        kotlinx.coroutines.delay(500)
-                                        // TODO: POST /api/orders/sell/{orderId}/buy
-                                        openOrders = openOrders.filter { it.id != order.id }
-                                        isLoading = false
-                                        message = "Вы купили ${order.quantity} акций по ${order.price} BYN"
-                                        onOrderExecuted()
-                                    }
-                                },
-                                enabled = !isLoading,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary
-                                )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Купить")
+                                Column {
+                                    Text("📊 ${order.quantity} шт.", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                                    Text("💰 ${order.price} BYN за шт.")
+                                    Text("👤 ${order.sellerUserId.take(8)}...", fontSize = 12.sp)
+                                    Text("🕐 ${order.createdAt.take(19)}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        isLoading = true
+                                        coroutineScope.launch {
+                                            val result = repository.buySpecificOrder(
+                                                order.id,
+                                                order.quantity,
+                                                order.price
+                                            )
+                                            isLoading = false
+                                            result.onSuccess {
+                                                message = "Вы купили ${order.quantity} акций по ${order.price} BYN"
+                                                loadOrders()
+                                                onOrderExecuted()
+                                            }.onFailure { error ->
+                                                message = "Ошибка: ${error.message}"
+                                            }
+                                        }
+                                    },
+                                    enabled = !isLoading,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary
+                                    )
+                                ) {
+                                    Text("Купить")
+                                }
                             }
                         }
                     }

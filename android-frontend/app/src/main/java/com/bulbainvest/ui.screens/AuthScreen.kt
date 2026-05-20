@@ -7,11 +7,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.bulbainvest.repository.Repository
 import kotlinx.coroutines.launch
 
 @Composable
 fun AuthScreen(
-    onLoginSuccess: (String, String) -> Unit,  // token, userId
+    repository: Repository,
+    onLoginSuccess: (String) -> Unit,  // ← только token, без userId
     onError: (String) -> Unit = {}
 ) {
     var email by remember { mutableStateOf("") }
@@ -56,7 +58,7 @@ fun AuthScreen(
             OutlinedTextField(
                 value = code,
                 onValueChange = { code = it },
-                label = { Text("Код из письма (любой 6 цифр)") },
+                label = { Text("Код из письма") },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !isLoading,
                 singleLine = true
@@ -81,21 +83,20 @@ fun AuthScreen(
                 }
 
                 if (!isCodeSent) {
-                    // Запрос кода
                     isLoading = true
                     errorMessage = null
 
                     coroutineScope.launch {
-                        // TODO: POST /api/auth/code/request
-                        kotlinx.coroutines.delay(500) // симуляция сети
-
-                        // Мок: всегда успешно
+                        val result = repository.requestCode(email)
                         isLoading = false
-                        isCodeSent = true
-                        errorMessage = null
+                        result.onSuccess {
+                            isCodeSent = true
+                            errorMessage = null
+                        }.onFailure { error ->
+                            errorMessage = "Ошибка: ${error.message}"
+                        }
                     }
                 } else {
-                    // Подтверждение кода
                     if (code.length < 4) {
                         errorMessage = "Введите код"
                         return@Button
@@ -105,14 +106,13 @@ fun AuthScreen(
                     errorMessage = null
 
                     coroutineScope.launch {
-                        // TODO: POST /api/auth/code/confirm
-                        kotlinx.coroutines.delay(500)
-
-                        // Мок: всегда успешно
+                        val result = repository.confirmCode(email, code)
                         isLoading = false
-                        val mockToken = "mock_token_${System.currentTimeMillis()}"
-                        val mockUserId = "user_${System.currentTimeMillis()}"
-                        onLoginSuccess(mockToken, mockUserId)
+                        result.onSuccess { authResponse ->
+                            onLoginSuccess(authResponse.token)
+                        }.onFailure { error ->
+                            errorMessage = "Ошибка: ${error.message}"
+                        }
                     }
                 }
             },
@@ -129,8 +129,8 @@ fun AuthScreen(
         if (isCodeSent) {
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Для теста: любой 6-значный код подойдёт",
-                fontSize = 12.sp,
+                text = "Код придёт на почту (проверьте MailHog https://bulba.onix.fun/mail/)",
+                fontSize = 10.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }

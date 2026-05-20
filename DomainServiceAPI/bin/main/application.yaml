@@ -1,0 +1,44 @@
+ktor:
+  deployment:
+    port: $PORT
+  application:
+    modules:
+      - com.bulbainvest.domain.ApplicationKt.module
+
+db:
+  jdbcUrl: $DB_URL
+  user: $DB_USER
+  password: $DB_PASSWORD
+
+redis:
+  host: $REDIS_HOST
+  port: $REDIS_PORT
+
+brokerRedis:
+  host: $BROKER_REDIS_HOST
+  port: $BROKER_REDIS_PORT
+  quotesKeyPrefix: $BROKER_QUOTES_PREFIX
+
+jwt:
+  secret: $JWT_SECRET
+  issuer: $JWT_ISSUER
+  audience: $JWT_AUDIENCE
+  realm: $JWT_REALM
+  ttlSeconds: $JWT_TTL
+
+mail:
+  host: $MAIL_HOST
+  port: $MAIL_PORT
+  from: $MAIL_FROM
+  user: $MAIL_USER
+  password: $MAIL_PASSWORD
+
+stocksMarketApi:
+  baseUrl: $STOCKS_MARKET_API_URL
+
+authCode:
+  ttlSeconds: 300
+  length: 6
+
+defaults:
+  currency: BYN

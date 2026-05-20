@@ -3,8 +3,8 @@ package com.bulbainvest.models
 data class UserWallet(
     val id: String,
     val currency: String,
-    val amount: Double,
-    val reservedAmount: Double,
-    val availableAmount: Double,
+    val amount: String,
+    val reservedAmount: String,
+    val availableAmount: String,
     val isDefault: Boolean
 )

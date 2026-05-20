@@ -9,32 +9,46 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
+import com.bulbainvest.repository.Repository
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 @Composable
 fun TradeCompanyScreen(
+    repository: Repository,
     ticker: String,
     onBack: () -> Unit,
-    onTradeComplete: (String, Int, Double) -> Unit  // type, quantity, total
+    onTradeComplete: (String, Int, Double) -> Unit
 ) {
     var quantity by remember { mutableStateOf("") }
     var isBuying by remember { mutableStateOf(true) }
     var isLoading by remember { mutableStateOf(false) }
     var resultMessage by remember { mutableStateOf<String?>(null) }
+    var currentPrice by remember { mutableStateOf("0") }
+    var isLoadingPrice by remember { mutableStateOf(true) }
+    val coroutineScope = rememberCoroutineScope()
 
-    // Get coroutine scope
-    val scope = rememberCoroutineScope()
+    // Загрузка текущей цены из стакана (лучший ask)
+    LaunchedEffect(ticker) {
+        isLoadingPrice = true
+        try {
+            val orderBook = repository.getOrderBook(ticker)
+            val bestAsk = orderBook.getOrNull()?.orders?.minByOrNull { it.price.toDouble() }
+            if (bestAsk != null) {
+                currentPrice = bestAsk.price
+            }
+        } catch (e: Exception) {
+            currentPrice = when (ticker) {
+                "AAPL" -> "150.00"
+                "GOOGL" -> "2800.00"
+                else -> "100.00"
+            }
+        }
+        isLoadingPrice = false
+    }
 
-    // Моковые цены
-    val currentPrice = if (ticker == "AAPL") 150.0 else 2800.0
-    val buyPrice = currentPrice
-    val sellPrice = currentPrice * 0.98  // продажа на 2% дешевле
-
-    val effectivePrice = if (isBuying) buyPrice else sellPrice
     val quantityInt = quantity.toIntOrNull() ?: 0
+    val priceDouble = currentPrice.toDoubleOrNull() ?: 0.0
+    val effectivePrice = if (isBuying) priceDouble else priceDouble * 0.98
     val totalAmount = quantityInt * effectivePrice
 
     Column(
@@ -42,7 +56,6 @@ fun TradeCompanyScreen(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        // Заголовок
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -59,7 +72,6 @@ fun TradeCompanyScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Переключатель Покупка/Продажа
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center
@@ -79,16 +91,17 @@ fun TradeCompanyScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Информация о цене
-        Card(
-            modifier = Modifier.fillMaxWidth()
-        ) {
+        Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("Текущая цена", fontSize = 14.sp)
-                Text(
-                    text = "$effectivePrice BYN",
-                    fontSize = 28.sp
-                )
+                if (isLoadingPrice) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                } else {
+                    Text(
+                        text = "$effectivePrice BYN",
+                        fontSize = 28.sp
+                    )
+                }
                 if (!isBuying) {
                     Text(
                         text = "Продажа по цене на 2% ниже рыночной",
@@ -101,7 +114,6 @@ fun TradeCompanyScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Ввод количества
         OutlinedTextField(
             value = quantity,
             onValueChange = {
@@ -116,7 +128,6 @@ fun TradeCompanyScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Итого
         if (quantityInt > 0) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -137,7 +148,6 @@ fun TradeCompanyScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Кнопка действия
         Button(
             onClick = {
                 if (quantityInt <= 0) {
@@ -148,22 +158,25 @@ fun TradeCompanyScreen(
                 isLoading = true
                 resultMessage = null
 
-                // Моковая имитация запроса
-                // TODO: заменить на реальный API вызов
-                // POST /api/trades/company/buy или /sell
+                coroutineScope.launch {
+                    val result = if (isBuying) {
+                        repository.buyFromCompany(ticker, quantityInt.toString())
+                    } else {
+                        repository.sellToCompany(ticker, quantityInt.toString())
+                    }
 
-                scope.launch {
-                    delay(1000) // симуляция сети
-                    withContext(Dispatchers.Main) {
-                        isLoading = false
+                    isLoading = false
+                    result.onSuccess { trade ->
                         val tradeType = if (isBuying) "покупка" else "продажа"
-                        resultMessage = "$tradeType $quantityInt акций $ticker на сумму $totalAmount BYN"
+                        resultMessage = "$tradeType ${trade.quantity} акций $ticker на сумму ${trade.totalAmount} BYN"
                         onTradeComplete(tradeType, quantityInt, totalAmount)
+                    }.onFailure { error ->
+                        resultMessage = "Ошибка: ${error.message}"
                     }
                 }
             },
             modifier = Modifier.fillMaxWidth(),
-            enabled = !isLoading && quantityInt > 0,
+            enabled = !isLoading && quantityInt > 0 && !isLoadingPrice,
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (isBuying)
                     MaterialTheme.colorScheme.primary
@@ -178,13 +191,12 @@ fun TradeCompanyScreen(
             }
         }
 
-        // Сообщение о результате
         if (resultMessage != null) {
             Spacer(modifier = Modifier.height(16.dp))
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (resultMessage!!.contains("успешно"))
+                    containerColor = if (resultMessage!!.contains("успешно") || resultMessage!!.contains("покупка") || resultMessage!!.contains("продажа"))
                         MaterialTheme.colorScheme.primaryContainer
                     else
                         MaterialTheme.colorScheme.errorContainer
